@@ -1,25 +1,9 @@
-from pathlib import Path
-
 from stt_local import app
 from stt_local.app import status_presentation
 from stt_local.config import AppConfig, ConfigStore
 from stt_local.coordinator import DictationState
 from stt_local.processors import ProcessorRegistry
 from stt_local.settings import SettingsModel
-
-
-def test_command_is_normalized_and_consumed_once(tmp_path):
-    command_file = tmp_path / "stt-command"
-    command_file.write_text("  SuBmIt \n")
-    watcher = app.CommandWatcher(command_file)
-
-    assert watcher.poll() == "submit"
-    assert not command_file.exists()
-    assert watcher.poll() is None
-
-
-def test_missing_command_is_noop(tmp_path):
-    assert app.CommandWatcher(tmp_path / "missing").poll() is None
 
 
 def test_status_presentation_covers_every_state():

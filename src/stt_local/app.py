@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from typing import Any
 
 from .audio import AudioRecorder
 from .config import ConfigStore
-from .constants import COMMAND_FILE, POLL_INTERVAL_SECONDS, PROCESSORS_DIR
+from .constants import POLL_INTERVAL_SECONDS, PROCESSORS_DIR
 from .coordinator import DictationCoordinator, DictationState
+from .hotkey import RightCommandGestures, RightCommandMonitor
 from .model_worker import WorkerManager
 from .output import MacOutput
 from .processors import ProcessorRegistry
@@ -18,23 +18,6 @@ try:
     import rumps
 except ImportError:  # Allows pure model tests without installing GUI dependencies.
     rumps = None  # type: ignore[assignment]
-
-
-class CommandWatcher:
-    def __init__(self, path: Path = COMMAND_FILE) -> None:
-        self.path = Path(path)
-
-    def clear(self) -> None:
-        self.path.unlink(missing_ok=True)
-
-    def poll(self) -> str | None:
-        try:
-            command = self.path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            return None
-        finally:
-            self.path.unlink(missing_ok=True)
-        return command.strip().lower() or None
 
 
 def status_presentation(state: DictationState) -> tuple[str | None, str]:
@@ -101,7 +84,7 @@ if rumps is not None:
             coordinator: DictationCoordinator,
             settings: SettingsWindowController,
             settings_model: SettingsModel,
-            watcher: CommandWatcher | None = None,
+            monitor: RightCommandMonitor,
         ) -> None:
             super().__init__("STT Local", title=None, quit_button=None)
             self._icon_nsimage = make_status_icon(
@@ -113,12 +96,17 @@ if rumps is not None:
             self.processor_menu = ProcessorMenu(
                 settings_model, self._rebuild_menu
             )
-            self.watcher = watcher or CommandWatcher()
-            self.watcher.clear()
+            self.monitor = monitor
             self.status_item = rumps.MenuItem("Idle")
             self._rebuild_menu()
             self._timer = rumps.Timer(self._tick, POLL_INTERVAL_SECONDS)
             self._timer.start()
+            try:
+                self.monitor.start()
+            except Exception as exc:
+                rumps.notification(
+                    "Keyboard monitoring unavailable", "STT Local", str(exc)
+                )
 
         def _rebuild_menu(self) -> None:
             processor_heading = rumps.MenuItem("Processor")
@@ -147,9 +135,6 @@ if rumps is not None:
 
         def _tick(self, _timer: Any) -> None:
             self.coordinator.refresh()
-            command = self.watcher.poll()
-            if command is not None:
-                self.coordinator.handle_command(command)
 
         def _show_settings(self, _sender: Any) -> None:
             self.settings_controller.show()
@@ -159,6 +144,7 @@ if rumps is not None:
 
         def _quit(self, _sender: Any) -> None:
             self._timer.stop()
+            self.monitor.stop()
             self.coordinator.shutdown()
             rumps.quit_application()
 
@@ -191,10 +177,22 @@ def build_app() -> Any:
         notification_callback=notify,
         dispatch=lambda callback: AppHelper.callAfter(callback),
     )
+    def dispatch_action(callback: Any) -> None:
+        AppHelper.callAfter(callback)
+
+    gestures = RightCommandGestures(
+        state=lambda: coordinator.state,
+        toggle=lambda: dispatch_action(coordinator.toggle),
+        submit=lambda: dispatch_action(
+            lambda: coordinator.stop_recording(submit=True)
+        ),
+        cancel=lambda: dispatch_action(coordinator.cancel),
+    )
     app = DictationApp(
         coordinator=coordinator,
         settings=settings,
         settings_model=settings_model,
+        monitor=RightCommandMonitor(gestures),
     )
     coordinator.status_callback = app.update_status
     app.update_status(DictationState.IDLE)

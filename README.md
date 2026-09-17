@@ -1,6 +1,6 @@
 # STT Local
 
-A deliberately small, fully local macOS menu-bar dictation app. BetterTouchTool writes commands to a local mailbox; STT Local records the current default microphone, transcribes the complete recording with MLX Whisper large-v3-turbo, optionally runs a trusted Python processor, and pastes the result once.
+A deliberately small, fully local macOS menu-bar dictation app. A built-in Right Command listener controls recording; STT Local records the current default microphone, transcribes the complete recording with MLX Whisper large-v3-turbo, optionally runs a trusted Python processor, and pastes the result once.
 
 Accuracy is the priority. Recordings are not split or stitched, audio is never sent to a server, and partial text is never typed while you speak.
 
@@ -28,43 +28,24 @@ The first recording downloads and warms `mlx-community/whisper-large-v3-turbo`. 
 
 ## Permissions
 
-macOS should request Microphone permission on first capture. Pasting also requires Accessibility permission:
+macOS should request Microphone permission on first capture. Monitoring Right Command and pasting require Accessibility permission:
 
 1. Open **System Settings → Privacy & Security → Accessibility**.
 2. Add or enable `~/repos/stt-local/.venv/bin/python`. When running from Terminal during development, enable Terminal as well.
 3. Open **Privacy & Security → Microphone** and enable the Python process when prompted.
 
-If capture works but Command-V does not, Accessibility permission is the likely cause. The completed transcript is still copied with `pbcopy` before the paste attempt.
+If Right Command does nothing or Command-V is not synthesized, Accessibility permission is the likely cause. macOS may also list the interpreter under **Privacy & Security → Input Monitoring**. The completed transcript is still copied with `pbcopy` before the paste attempt.
 
-## BetterTouchTool
+## Keyboard controls
 
-The command mailbox is `/tmp/stt-command`. Configure BetterTouchTool gestures or hotkeys with these shell commands:
+STT Local monitors the Right Command key directly:
 
-```bash
-# Start recording, or stop and transcribe normally
-printf '%s\n' toggle > /tmp/stt-command
+- Tap while idle: start recording immediately on release.
+- Tap while recording: stop, transcribe, and paste after a 200 ms double-tap window.
+- Double-tap while recording: stop, transcribe, paste, then press Return.
+- Hold for 700 ms: discard an active recording or cancel active transcription.
 
-# Discard an active recording or cancel an active transcription
-printf '%s\n' cancel > /tmp/stt-command
-
-# Stop, transcribe, paste, then press Return
-printf '%s\n' submit > /tmp/stt-command
-```
-
-A ready-to-import export is included at
-[`integrations/bettertouchtool/stt-local-triggers.bttpreset`](integrations/bettertouchtool/stt-local-triggers.bttpreset).
-Import it with BetterTouchTool's preset/trigger import control and review the
-commands when prompted. It configures these key sequences:
-
-- Right Command: toggle recording or finish and transcribe
-- Right Shift + Right Command: cancel
-- Right Option + Right Command: submit
-
-BetterTouchTool exports can execute arbitrary commands. Only import this file
-from a source you trust; this export contains only the three `/tmp/stt-command`
-commands shown above.
-
-Toggle starts recording with a compact double chirp while idle and stops with the Ping cue while recording. Cancel uses Pop; submit uses its own low confirmation cue before transcription. Cancelled recordings are discarded. Cancelling active transcription terminates the model worker, so the next recording reloads the model. Unknown commands produce a notification and do nothing.
+Starting uses a compact double chirp and normal stop uses the Ping cue. Cancel uses Pop; submit uses its own low confirmation cue before transcription. Cancelled recordings are discarded. Cancelling active transcription terminates the model worker, so the next recording reloads the model.
 
 The transcript is pasted into whichever application has focus when transcription finishes, so changing applications while speaking is safe.
 

@@ -271,16 +271,6 @@ def test_submit_uses_distinct_sound_then_pastes_and_presses_enter():
     output.send.assert_called_once_with("processed transcript", press_enter=True)
 
 
-def test_handle_command_dispatches_and_reports_unknown_command():
-    parts = make_coordinator()
-    coordinator, recorder, _, _, _, _, _, notifications, _ = parts
-
-    assert coordinator.handle_command("toggle")
-    recorder.start.assert_called_once_with()
-    assert not coordinator.handle_command("mystery")
-    assert notifications == [("Unknown command", "mystery")]
-
-
 def test_shutdown_aborts_recording_and_stops_worker():
     coordinator, recorder, worker, *_ = make_coordinator()
     coordinator.start_recording()

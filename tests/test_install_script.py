@@ -35,8 +35,8 @@ def test_install_script_generates_expected_launch_agent(tmp_path):
     assert plist["WorkingDirectory"] == str(repository)
     assert plist["StandardOutPath"] == "/tmp/stt-local.stdout.log"
     assert plist["StandardErrorPath"] == "/tmp/stt-local.stderr.log"
-    assert "printf '%s\\n' toggle > /tmp/stt-command" in completed.stdout
-    assert "/tmp/stt-toggle" not in completed.stdout
+    assert "Control dictation with Right Command" in completed.stdout
+    assert "/tmp/stt-command" not in completed.stdout
 
 
 def test_install_script_retries_transient_launchctl_bootstrap_failure(tmp_path):

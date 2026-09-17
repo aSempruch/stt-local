@@ -36,4 +36,4 @@ if [[ "${STT_LOCAL_SKIP_LAUNCHCTL:-0}" != "1" ]]; then
 fi
 
 echo "Installed ${label}"
-print -r -- "Toggle dictation with: printf '%s\n' toggle > /tmp/stt-command"
+print -r -- "Control dictation with Right Command: tap, double-tap, or hold"

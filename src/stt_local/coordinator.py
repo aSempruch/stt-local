@@ -127,23 +127,6 @@ class DictationCoordinator:
             self._cancel_requested.set()
             self.worker.cancel()
 
-    def handle_command(self, command: str) -> bool:
-        if command == "toggle":
-            self.toggle()
-            return True
-        if command == "cancel":
-            self.cancel()
-            return True
-        if command == "submit":
-            if self.state in {
-                DictationState.RECORDING_LOADING,
-                DictationState.RECORDING_READY,
-            }:
-                self.stop_recording(submit=True)
-            return True
-        self._notify("Unknown command", command)
-        return False
-
     def _discard_recording(self) -> None:
         try:
             self.recorder.abort()
