@@ -8,6 +8,23 @@ from pathlib import Path
 from .constants import PROCESSORS_DIR
 
 
+_SENTENCE_ENDING_PERIODS = re.compile(
+    r"\.+(?=(?:[\"')\]]*)(?:\s+(?=[A-Z\"'])|$))"
+)
+
+
+def casual_discord(text: str) -> str:
+    text = _SENTENCE_ENDING_PERIODS.sub("", text)
+    for index, character in enumerate(text):
+        if not character.isalpha():
+            continue
+        next_character = text[index + 1 : index + 2]
+        if character == "I" and (not next_character or not next_character.isalpha()):
+            return text
+        return f"{text[:index]}{character.lower()}{text[index + 1:]}"
+    return text
+
+
 class ProcessorExistsError(FileExistsError):
     pass
 
@@ -30,7 +47,10 @@ class ProcessorRegistry:
         self.directory = Path(directory)
 
     def list_processors(self) -> list[ProcessorInfo]:
-        processors = [ProcessorInfo("plain_text", "Plain Text", None)]
+        processors = [
+            ProcessorInfo("plain_text", "Plain Text", None),
+            ProcessorInfo("casual_discord", "Casual Discord", None),
+        ]
         if not self.directory.exists():
             return processors
         for path in sorted(self.directory.glob("*.py")):
@@ -62,6 +82,8 @@ class ProcessorRegistry:
     def apply(self, key: str, text: str) -> ProcessorResult:
         if key == "plain_text":
             return ProcessorResult(text)
+        if key == "casual_discord":
+            return ProcessorResult(casual_discord(text))
         path = self.directory / f"{key}.py"
         try:
             if not path.is_file() or path.name.startswith("_"):

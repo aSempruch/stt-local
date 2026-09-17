@@ -18,7 +18,11 @@ def test_refresh_preserves_valid_selection(tmp_path):
 
     processors = model.refresh()
 
-    assert [item.key for item in processors] == ["plain_text", "clean_up"]
+    assert [item.key for item in processors] == [
+        "plain_text",
+        "casual_discord",
+        "clean_up",
+    ]
     assert model.selected_processor == "clean_up"
     assert store.load().idle_unload_seconds == 25
 

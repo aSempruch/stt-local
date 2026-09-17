@@ -5,8 +5,18 @@ from local_dictation.processors import ProcessorExistsError, ProcessorRegistry
 
 def test_plain_text_is_always_available(tmp_path):
     assert [p.key for p in ProcessorRegistry(tmp_path).list_processors()] == [
-        "plain_text"
+        "plain_text",
+        "casual_discord",
     ]
+
+
+def test_casual_discord_is_builtin_not_a_generated_file(tmp_path):
+    processors = ProcessorRegistry(tmp_path).list_processors()
+
+    casual = next(processor for processor in processors if processor.key == "casual_discord")
+    assert casual.display_name == "Casual Discord"
+    assert casual.path is None
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_discovery_ignores_private_and_non_python_files(tmp_path):
@@ -16,8 +26,32 @@ def test_discovery_ignores_private_and_non_python_files(tmp_path):
 
     processors = ProcessorRegistry(tmp_path).list_processors()
 
-    assert [p.key for p in processors] == ["plain_text", "sentence_case"]
-    assert processors[1].display_name == "Sentence Case"
+    assert [p.key for p in processors] == [
+        "plain_text",
+        "casual_discord",
+        "sentence_case",
+    ]
+    assert processors[2].display_name == "Sentence Case"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Hello there. How are you?", "hello there How are you?"),
+        ("I think PostgreSQL 16.2 is nice.", "I think PostgreSQL 16.2 is nice"),
+        ("I'm testing v2.1.", "I'm testing v2.1"),
+        ('"Hello there."', '"hello there"'),
+        ("Visit https://example.com/docs. Great!", "visit https://example.com/docs Great!"),
+        ("Wait... Really?", "wait Really?"),
+        ("Interesting!", "interesting!"),
+        ("Already casual", "already casual"),
+    ],
+)
+def test_casual_discord_transforms_completed_transcript(tmp_path, text, expected):
+    result = ProcessorRegistry(tmp_path).apply("casual_discord", text)
+
+    assert result.text == expected
+    assert result.error is None
 
 
 def test_create_writes_importable_template(tmp_path):
