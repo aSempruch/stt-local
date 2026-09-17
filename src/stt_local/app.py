@@ -48,11 +48,22 @@ def status_presentation(state: DictationState) -> tuple[str | None, str]:
     }[state]
 
 
-def make_status_icon() -> Any:
+def status_symbol_name(state: DictationState) -> str:
+    return {
+        DictationState.IDLE: "mic.fill",
+        DictationState.RECORDING_LOADING: "waveform",
+        DictationState.RECORDING_READY: "waveform",
+        DictationState.STOPPING: "ellipsis.circle",
+        DictationState.TRANSCRIBING: "ellipsis.circle",
+        DictationState.ERROR: "exclamationmark.triangle",
+    }[state]
+
+
+def make_status_icon(symbol_name: str) -> Any:
     import AppKit
 
     image = AppKit.NSImage.imageWithSystemSymbolName_accessibilityDescription_(
-        "mic.fill", "STT Local"
+        symbol_name, "STT Local"
     )
     configuration = AppKit.NSImageSymbolConfiguration.configurationWithPointSize_weight_(
         16, AppKit.NSFontWeightRegular
@@ -60,6 +71,25 @@ def make_status_icon() -> Any:
     image = image.imageWithSymbolConfiguration_(configuration)
     image.setTemplate_(True)
     return image
+
+
+class ProcessorMenu:
+    def __init__(self, model: SettingsModel, on_change: Any) -> None:
+        self.model = model
+        self.on_change = on_change
+
+    def build_items(self) -> list[Any]:
+        items = []
+        for processor in self.model.refresh():
+            item = rumps.MenuItem(processor.display_name, callback=self.select)
+            item.processor_key = processor.key
+            item.state = int(processor.key == self.model.selected_processor)
+            items.append(item)
+        return items
+
+    def select(self, sender: Any) -> None:
+        self.model.select(sender.processor_key)
+        self.on_change()
 
 
 if rumps is not None:
@@ -74,27 +104,45 @@ if rumps is not None:
             watcher: CommandWatcher | None = None,
         ) -> None:
             super().__init__("STT Local", title=None, quit_button=None)
-            self._icon_nsimage = make_status_icon()
+            self._icon_nsimage = make_status_icon(
+                status_symbol_name(DictationState.IDLE)
+            )
             self.coordinator = coordinator
             self.settings_controller = settings
             self.settings_model = settings_model
+            self.processor_menu = ProcessorMenu(
+                settings_model, self._rebuild_menu
+            )
             self.watcher = watcher or CommandWatcher()
             self.watcher.clear()
             self.status_item = rumps.MenuItem("Idle")
+            self._rebuild_menu()
+            self._timer = rumps.Timer(self._tick, POLL_INTERVAL_SECONDS)
+            self._timer.start()
+
+        def _rebuild_menu(self) -> None:
+            processor_heading = rumps.MenuItem("Processor")
+            self._menu.clear()
             self.menu = [
                 self.status_item,
                 None,
-                rumps.MenuItem("Settings…", callback=self._show_settings),
+                processor_heading,
+                *self.processor_menu.build_items(),
                 rumps.MenuItem("Reload Processors", callback=self._reload_processors),
+                None,
+                rumps.MenuItem("Settings…", callback=self._show_settings),
                 None,
                 rumps.MenuItem("Quit STT Local", callback=self._quit),
             ]
-            self._timer = rumps.Timer(self._tick, POLL_INTERVAL_SECONDS)
-            self._timer.start()
 
         def update_status(self, state: DictationState) -> None:
             title, status = status_presentation(state)
             self.title = title
+            self._icon_nsimage = make_status_icon(status_symbol_name(state))
+            try:
+                self._nsapp.setStatusBarIcon()
+            except AttributeError:
+                pass
             self.status_item.title = status
 
         def _tick(self, _timer: Any) -> None:
@@ -107,7 +155,7 @@ if rumps is not None:
             self.settings_controller.show()
 
         def _reload_processors(self, _sender: Any) -> None:
-            self.settings_model.refresh()
+            self._rebuild_menu()
 
         def _quit(self, _sender: Any) -> None:
             self._timer.stop()
