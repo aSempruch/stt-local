@@ -37,15 +37,29 @@ class CommandWatcher:
         return command.strip().lower() or None
 
 
-def status_presentation(state: DictationState) -> tuple[str, str]:
+def status_presentation(state: DictationState) -> tuple[str | None, str]:
     return {
-        DictationState.IDLE: ("STT", "Idle"),
-        DictationState.RECORDING_LOADING: ("●", "Recording · Loading Model"),
-        DictationState.RECORDING_READY: ("●", "Recording · Model Ready"),
-        DictationState.STOPPING: ("…", "Stopping Recording"),
-        DictationState.TRANSCRIBING: ("…", "Transcribing"),
-        DictationState.ERROR: ("!", "Error"),
+        DictationState.IDLE: (None, "Idle"),
+        DictationState.RECORDING_LOADING: (None, "Recording · Loading Model"),
+        DictationState.RECORDING_READY: (None, "Recording · Model Ready"),
+        DictationState.STOPPING: (None, "Stopping Recording"),
+        DictationState.TRANSCRIBING: (None, "Transcribing"),
+        DictationState.ERROR: (None, "Error"),
     }[state]
+
+
+def make_status_icon() -> Any:
+    import AppKit
+
+    image = AppKit.NSImage.imageWithSystemSymbolName_accessibilityDescription_(
+        "mic.fill", "Local Dictation"
+    )
+    configuration = AppKit.NSImageSymbolConfiguration.configurationWithPointSize_weight_(
+        16, AppKit.NSFontWeightRegular
+    )
+    image = image.imageWithSymbolConfiguration_(configuration)
+    image.setTemplate_(True)
+    return image
 
 
 if rumps is not None:
@@ -59,7 +73,8 @@ if rumps is not None:
             settings_model: SettingsModel,
             watcher: CommandWatcher | None = None,
         ) -> None:
-            super().__init__("STT", quit_button=None)
+            super().__init__("Local Dictation", title=None, quit_button=None)
+            self._icon_nsimage = make_status_icon()
             self.coordinator = coordinator
             self.settings_controller = settings
             self.settings_model = settings_model

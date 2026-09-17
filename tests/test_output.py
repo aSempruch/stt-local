@@ -63,5 +63,5 @@ def test_sounds_launch_without_waiting():
     sounds.play_stop()
 
     assert popen.call_count == 2
-    assert popen.call_args_list[0].args[0][-1].endswith("Tink.aiff")
+    assert popen.call_args_list[0].args[0][-1].endswith("Purr.aiff")
     assert popen.call_args_list[1].args[0][-1].endswith("Pop.aiff")

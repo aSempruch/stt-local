@@ -11,7 +11,7 @@ class MacSounds:
         self,
         *,
         popen: Callable[..., Any] = subprocess.Popen,
-        start_sound: Path = Path("/System/Library/Sounds/Tink.aiff"),
+        start_sound: Path = Path("/System/Library/Sounds/Purr.aiff"),
         stop_sound: Path = Path("/System/Library/Sounds/Pop.aiff"),
     ) -> None:
         self._popen = popen

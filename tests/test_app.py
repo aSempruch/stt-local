@@ -22,8 +22,16 @@ def test_missing_command_is_noop(tmp_path):
 def test_status_presentation_covers_every_state():
     presentations = {state: status_presentation(state) for state in DictationState}
 
-    assert presentations[DictationState.IDLE] == ("STT", "Idle")
+    assert presentations[DictationState.IDLE] == (None, "Idle")
     assert presentations[DictationState.RECORDING_LOADING][1] == "Recording · Loading Model"
     assert presentations[DictationState.RECORDING_READY][1] == "Recording · Model Ready"
     assert presentations[DictationState.TRANSCRIBING][1] == "Transcribing"
     assert set(presentations) == set(DictationState)
+
+
+def test_status_icon_is_native_template_microphone():
+    image = app.make_status_icon()
+
+    assert image is not None
+    assert image.isTemplate()
+    assert image.accessibilityDescription() == "Local Dictation"
