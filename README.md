@@ -51,7 +51,7 @@ printf '%s\n' cancel > /tmp/stt-command
 printf '%s\n' submit > /tmp/stt-command
 ```
 
-Toggle starts recording with a soft cue while idle and stops with the existing Pop cue while recording. Cancelled recordings are discarded. Cancelling active transcription terminates the model worker, so the next recording reloads the model. Unknown commands produce a notification and do nothing.
+Toggle starts recording with a compact double chirp while idle and stops with the Ping cue while recording. Cancel uses Pop; submit uses its own low confirmation cue before transcription. Cancelled recordings are discarded. Cancelling active transcription terminates the model worker, so the next recording reloads the model. Unknown commands produce a notification and do nothing.
 
 The transcript is pasted into whichever application has focus when transcription finishes, so changing applications while speaking is safe.
 

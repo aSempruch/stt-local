@@ -70,8 +70,12 @@ def test_sounds_launch_without_waiting():
 
     sounds.play_start()
     sounds.play_stop()
+    sounds.play_cancel()
+    sounds.play_submit()
 
-    assert popen.call_count == 2
-    assert popen.call_args_list[0].args[0][-1].endswith("Purr.aiff")
-    assert popen.call_args_list[1].args[0][-1].endswith("Pop.aiff")
-    assert popen.return_value.wait.call_count == 2
+    assert popen.call_count == 4
+    assert popen.call_args_list[0].args[0][-1].endswith("start-recording.wav")
+    assert popen.call_args_list[1].args[0][-1].endswith("Ping.aiff")
+    assert popen.call_args_list[2].args[0][-1].endswith("Pop.aiff")
+    assert popen.call_args_list[3].args[0][-1].endswith("submit.wav")
+    assert popen.return_value.wait.call_count == 4

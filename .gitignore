@@ -5,6 +5,7 @@
 __pycache__/
 *.py[cod]
 *.wav
+!src/stt_local/sound_assets/*.wav
 *.npy
 .coverage
 htmlcov/

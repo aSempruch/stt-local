@@ -122,6 +122,8 @@ def test_stop_transcribes_processes_and_pastes_once():
     coordinator.stop_recording()
 
     sounds.play_stop.assert_called_once_with()
+    sounds.play_cancel.assert_not_called()
+    sounds.play_submit.assert_not_called()
     worker.transcribe.assert_called_once()
     processors.apply.assert_called_once_with("clean_up", "raw transcript")
     output.send.assert_called_once_with("processed transcript", press_enter=False)
@@ -190,7 +192,9 @@ def test_cancel_discards_active_recording_without_transcription():
     recorder.abort.assert_called_once_with()
     worker.transcribe.assert_not_called()
     output.send.assert_not_called()
-    sounds.play_stop.assert_called_once_with()
+    sounds.play_cancel.assert_called_once_with()
+    sounds.play_stop.assert_not_called()
+    sounds.play_submit.assert_not_called()
     worker.schedule_idle_shutdown.assert_called_once_with()
     assert coordinator.state is DictationState.IDLE
 
@@ -254,13 +258,16 @@ def test_shutdown_while_discarding_does_not_schedule_idle_work():
     worker.schedule_idle_shutdown.assert_not_called()
 
 
-def test_submit_pastes_then_presses_enter():
+def test_submit_uses_distinct_sound_then_pastes_and_presses_enter():
     parts = make_coordinator()
-    coordinator, _, _, _, output, *_ = parts
+    coordinator, _, _, _, output, sounds, *_ = parts
     coordinator.start_recording()
 
     coordinator.stop_recording(submit=True)
 
+    sounds.play_submit.assert_called_once_with()
+    sounds.play_stop.assert_not_called()
+    sounds.play_cancel.assert_not_called()
     output.send.assert_called_once_with("processed transcript", press_enter=True)
 
 

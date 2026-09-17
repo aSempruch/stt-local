@@ -103,7 +103,10 @@ class DictationCoordinator:
                 return
             self._state = DictationState.STOPPING
         self._emit_status(DictationState.STOPPING)
-        self.sounds.play_stop()
+        if submit:
+            self.sounds.play_submit()
+        else:
+            self.sounds.play_stop()
         thread = self.thread_factory(
             target=lambda: self._finish_recording(submit), daemon=True
         )
@@ -117,7 +120,7 @@ class DictationCoordinator:
         }:
             self._cancel_requested.set()
             self._set_state(DictationState.STOPPING)
-            self.sounds.play_stop()
+            self.sounds.play_cancel()
             thread = self.thread_factory(target=self._discard_recording, daemon=True)
             thread.start()
         elif state in {DictationState.STOPPING, DictationState.TRANSCRIBING}:
