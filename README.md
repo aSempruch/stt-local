@@ -111,6 +111,10 @@ launchctl bootout "gui/$(id -u)/com.asempruch.stt-local"
 rm "$HOME/Library/LaunchAgents/com.asempruch.stt-local.plist"
 ```
 
+## License
+
+STT Local is available under the [MIT License](LICENSE).
+
 ## Development controls
 
 For idle-unload testing only, override the configured timeout when launching directly:
