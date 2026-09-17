@@ -1,4 +1,4 @@
-from local_dictation.config import AppConfig, ConfigStore
+from stt_local.config import AppConfig, ConfigStore
 
 
 def test_missing_config_returns_defaults(tmp_path):

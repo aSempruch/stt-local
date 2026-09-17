@@ -134,7 +134,7 @@ class SettingsWindowController:
             AppKit.NSBackingStoreBuffered,
             False,
         )
-        window.setTitle_("Local Dictation Settings")
+        window.setTitle_("STT Local Settings")
         window.center()
         controller = Controller.alloc().initWithWindow_(window)
         content = window.contentView()

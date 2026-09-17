@@ -134,7 +134,7 @@ class WorkerManager:
                     self.sample_rate,
                 ),
                 daemon=True,
-                name="local-dictation-whisper",
+                name="stt-local-whisper",
             )
             process.start()
             close_child = getattr(child_connection, "close", None)

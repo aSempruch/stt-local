@@ -3,7 +3,7 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from local_dictation.audio import AudioRecorder, trim_trailing_silence
+from stt_local.audio import AudioRecorder, trim_trailing_silence
 
 
 def test_trim_removes_only_trailing_silence():

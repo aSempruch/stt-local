@@ -70,7 +70,7 @@ class ProcessorRegistry:
         try:
             with path.open("x", encoding="utf-8") as handle:
                 handle.write(
-                    '"""Custom Local Dictation processor."""\n\n\n'
+                    '"""Custom STT Local processor."""\n\n\n'
                     "def process(text: str) -> str:\n"
                     '    """Transform and return the completed transcript."""\n'
                     "    return text\n"
@@ -89,7 +89,7 @@ class ProcessorRegistry:
             if not path.is_file() or path.name.startswith("_"):
                 raise FileNotFoundError(f"Processor not found: {key}")
             spec = importlib.util.spec_from_file_location(
-                f"local_dictation_user_processor_{key}", path
+                f"stt_local_user_processor_{key}", path
             )
             if spec is None or spec.loader is None:
                 raise ImportError(f"Could not load processor: {key}")

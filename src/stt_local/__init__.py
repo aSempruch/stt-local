@@ -1,3 +1,3 @@
-"""Local Dictation."""
+"""STT Local."""
 
 __version__ = "0.1.0"

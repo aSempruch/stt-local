@@ -1,8 +1,8 @@
 from contextlib import contextmanager
 from unittest.mock import Mock
 
-from local_dictation.output import MacOutput
-from local_dictation.sounds import MacSounds
+from stt_local.output import MacOutput
+from stt_local.sounds import MacSounds
 
 
 class FakeKeyboard:

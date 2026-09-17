@@ -3,8 +3,8 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from local_dictation import model_worker
-from local_dictation.model_worker import TranscriptionError, WorkerManager
+from stt_local import model_worker
+from stt_local.model_worker import TranscriptionError, WorkerManager
 
 
 class FakeEvent:

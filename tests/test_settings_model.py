@@ -1,8 +1,8 @@
 import pytest
 
-from local_dictation.config import AppConfig, ConfigStore
-from local_dictation.processors import ProcessorRegistry
-from local_dictation.settings import SettingsModel
+from stt_local.config import AppConfig, ConfigStore
+from stt_local.processors import ProcessorRegistry
+from stt_local.settings import SettingsModel
 
 
 def make_model(tmp_path, selected="plain_text"):

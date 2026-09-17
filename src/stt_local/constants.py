@@ -1,6 +1,6 @@
 from pathlib import Path
 
-APP_NAME = "Local Dictation"
+APP_NAME = "STT Local"
 APPLICATION_SUPPORT_DIR = Path.home() / "Library" / "Application Support" / APP_NAME
 CONFIG_PATH = APPLICATION_SUPPORT_DIR / "config.json"
 PROCESSORS_DIR = APPLICATION_SUPPORT_DIR / "processors"

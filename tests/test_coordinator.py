@@ -2,8 +2,8 @@ from unittest.mock import Mock, call
 
 import numpy as np
 
-from local_dictation.coordinator import DictationCoordinator, DictationState
-from local_dictation.processors import ProcessorResult
+from stt_local.coordinator import DictationCoordinator, DictationState
+from stt_local.processors import ProcessorResult
 
 
 class ImmediateThread:

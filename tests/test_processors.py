@@ -1,6 +1,6 @@
 import pytest
 
-from local_dictation.processors import ProcessorExistsError, ProcessorRegistry
+from stt_local.processors import ProcessorExistsError, ProcessorRegistry
 
 
 def test_plain_text_is_always_available(tmp_path):

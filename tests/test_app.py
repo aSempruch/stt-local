@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from local_dictation import app
-from local_dictation.app import status_presentation
-from local_dictation.coordinator import DictationState
+from stt_local import app
+from stt_local.app import status_presentation
+from stt_local.coordinator import DictationState
 
 
 def test_command_is_normalized_and_consumed_once(tmp_path):
@@ -34,4 +34,4 @@ def test_status_icon_is_native_template_microphone():
 
     assert image is not None
     assert image.isTemplate()
-    assert image.accessibilityDescription() == "Local Dictation"
+    assert image.accessibilityDescription() == "STT Local"

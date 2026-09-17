@@ -52,7 +52,7 @@ def make_status_icon() -> Any:
     import AppKit
 
     image = AppKit.NSImage.imageWithSystemSymbolName_accessibilityDescription_(
-        "mic.fill", "Local Dictation"
+        "mic.fill", "STT Local"
     )
     configuration = AppKit.NSImageSymbolConfiguration.configurationWithPointSize_weight_(
         16, AppKit.NSFontWeightRegular
@@ -73,7 +73,7 @@ if rumps is not None:
             settings_model: SettingsModel,
             watcher: CommandWatcher | None = None,
         ) -> None:
-            super().__init__("Local Dictation", title=None, quit_button=None)
+            super().__init__("STT Local", title=None, quit_button=None)
             self._icon_nsimage = make_status_icon()
             self.coordinator = coordinator
             self.settings_controller = settings
@@ -87,7 +87,7 @@ if rumps is not None:
                 rumps.MenuItem("Settings…", callback=self._show_settings),
                 rumps.MenuItem("Reload Processors", callback=self._reload_processors),
                 None,
-                rumps.MenuItem("Quit Local Dictation", callback=self._quit),
+                rumps.MenuItem("Quit STT Local", callback=self._quit),
             ]
             self._timer = rumps.Timer(self._tick, POLL_INTERVAL_SECONDS)
             self._timer.start()
@@ -117,7 +117,7 @@ if rumps is not None:
 
 def build_app() -> Any:
     if rumps is None:
-        raise RuntimeError("rumps is required to run Local Dictation")
+        raise RuntimeError("rumps is required to run STT Local")
     from PyObjCTools import AppHelper
 
     store = ConfigStore()
@@ -126,11 +126,11 @@ def build_app() -> Any:
     settings_model.refresh()
     configured_idle = store.load().idle_unload_seconds
     idle_seconds = float(
-        os.environ.get("LOCAL_DICTATION_IDLE_SECONDS", configured_idle)
+        os.environ.get("STT_LOCAL_IDLE_SECONDS", configured_idle)
     )
 
     def notify(title: str, message: str) -> None:
-        rumps.notification(title, "Local Dictation", message)
+        rumps.notification(title, "STT Local", message)
 
     settings = SettingsWindowController(settings_model, notify)
     coordinator = DictationCoordinator(
