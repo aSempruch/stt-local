@@ -51,6 +51,19 @@ printf '%s\n' cancel > /tmp/stt-command
 printf '%s\n' submit > /tmp/stt-command
 ```
 
+A ready-to-import export is included at
+[`integrations/bettertouchtool/stt-local-triggers.bttpreset`](integrations/bettertouchtool/stt-local-triggers.bttpreset).
+Import it with BetterTouchTool's preset/trigger import control and review the
+commands when prompted. It configures these key sequences:
+
+- Right Command: toggle recording or finish and transcribe
+- Right Shift + Right Command: cancel
+- Right Option + Right Command: submit
+
+BetterTouchTool exports can execute arbitrary commands. Only import this file
+from a source you trust; this export contains only the three `/tmp/stt-command`
+commands shown above.
+
 Toggle starts recording with a compact double chirp while idle and stops with the Ping cue while recording. Cancel uses Pop; submit uses its own low confirmation cue before transcription. Cancelled recordings are discarded. Cancelling active transcription terminates the model worker, so the next recording reloads the model. Unknown commands produce a notification and do nothing.
 
 The transcript is pasted into whichever application has focus when transcription finishes, so changing applications while speaking is safe.
