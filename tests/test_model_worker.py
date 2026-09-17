@@ -220,3 +220,4 @@ def test_explicit_cancel_stops_worker_without_retry():
 
     assert len(context.processes) == 1
     assert not manager.is_running
+    assert context.processes[0].terminated

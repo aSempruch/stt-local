@@ -214,6 +214,46 @@ def test_cancel_during_transcription_kills_worker_without_output_or_error():
     assert coordinator.state is DictationState.IDLE
 
 
+def test_shutdown_during_transcription_kills_worker_without_output_or_error():
+    parts = make_coordinator()
+    coordinator, _, worker, _, output, _, _, notifications, _ = parts
+
+    def shutdown_while_transcribing(_audio):
+        coordinator.shutdown()
+        return "must not paste"
+
+    worker.transcribe.side_effect = shutdown_while_transcribing
+    coordinator.start_recording()
+
+    coordinator.stop_recording()
+
+    worker.cancel.assert_called_once_with()
+    worker.shutdown.assert_not_called()
+    worker.schedule_idle_shutdown.assert_not_called()
+    output.send.assert_not_called()
+    assert notifications == []
+    assert coordinator.state is DictationState.IDLE
+
+
+def test_shutdown_while_discarding_does_not_schedule_idle_work():
+    threads = []
+
+    def thread_factory(**kwargs):
+        thread = HeldThread(**kwargs)
+        threads.append(thread)
+        return thread
+
+    coordinator, _, worker, *_ = make_coordinator(thread_factory=thread_factory)
+    coordinator.start_recording()
+    coordinator.cancel()
+
+    coordinator.shutdown()
+    threads[0].run()
+
+    worker.cancel.assert_called_once_with()
+    worker.schedule_idle_shutdown.assert_not_called()
+
+
 def test_submit_pastes_then_presses_enter():
     parts = make_coordinator()
     coordinator, _, _, _, output, *_ = parts
@@ -241,5 +281,6 @@ def test_shutdown_aborts_recording_and_stops_worker():
     coordinator.shutdown()
 
     recorder.abort.assert_called_once_with()
-    worker.shutdown.assert_called_once_with()
+    worker.cancel.assert_called_once_with()
+    worker.shutdown.assert_not_called()
     assert coordinator.state is DictationState.IDLE

@@ -95,6 +95,15 @@ These are temporary diagnostic files rather than persistent application data.
 
 Restart after source or dependency changes by running the installer again.
 
+`launchctl bootout` only stops and unloads the service. To start an installed
+service after booting it out, either rerun the installer above or bootstrap its
+existing plist directly:
+
+```bash
+launchctl bootstrap "gui/$(id -u)" \
+  "$HOME/Library/LaunchAgents/com.asempruch.stt-local.plist"
+```
+
 To stop and remove the service without deleting configuration or processors:
 
 ```bash

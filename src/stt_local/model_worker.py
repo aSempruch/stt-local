@@ -208,22 +208,24 @@ class WorkerManager:
         self.cancel_idle_shutdown()
         with self._state_lock:
             self._generation += 1
-        self._stop_worker()
+        self._stop_worker(force=True)
 
-    def _stop_worker(self) -> None:
+    def _stop_worker(self, *, force: bool = False) -> None:
         with self._state_lock:
             process = self._process
             connection = self._connection
             self._process = None
             self._connection = None
             self._ready_event = None
-        if connection is not None:
+        if connection is not None and not force:
             try:
                 if process is not None and process.is_alive():
                     connection.send({"command": "shutdown"})
             except (BrokenPipeError, EOFError, OSError):
                 pass
         if process is not None:
+            if force and process.is_alive():
+                process.terminate()
             process.join(timeout=2.0)
             if process.is_alive():
                 process.terminate()

@@ -45,6 +45,7 @@ class DictationCoordinator:
         self._lock = threading.RLock()
         self._state = DictationState.IDLE
         self._cancel_requested = threading.Event()
+        self._shutdown_requested = threading.Event()
 
     @property
     def state(self) -> DictationState:
@@ -146,7 +147,8 @@ class DictationCoordinator:
         except Exception as exc:
             self._notify("Recording cancel failed", str(exc))
         finally:
-            self.worker.schedule_idle_shutdown()
+            if not self._shutdown_requested.is_set():
+                self.worker.schedule_idle_shutdown()
             self._set_state(DictationState.IDLE)
 
     def _finish_recording(self, submit: bool = False) -> None:
@@ -172,10 +174,13 @@ class DictationCoordinator:
             if not self._cancel_requested.is_set():
                 self._notify("Transcription failed", str(exc))
         finally:
-            self.worker.schedule_idle_shutdown()
+            if not self._shutdown_requested.is_set():
+                self.worker.schedule_idle_shutdown()
             self._set_state(DictationState.IDLE)
 
     def shutdown(self) -> None:
+        self._shutdown_requested.set()
+        self._cancel_requested.set()
         if self.state in {
             DictationState.RECORDING_LOADING,
             DictationState.RECORDING_READY,
@@ -184,7 +189,9 @@ class DictationCoordinator:
                 self.recorder.abort()
             except Exception:
                 pass
-        self.worker.shutdown()
+        # An active transcription holds the worker request lock. Interrupting it
+        # avoids deadlocking the menu-bar thread before the app can actually quit.
+        self.worker.cancel()
         self._set_state(DictationState.IDLE)
 
     def _set_state(self, state: DictationState) -> None:
