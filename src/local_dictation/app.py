@@ -6,7 +6,7 @@ from typing import Any
 
 from .audio import AudioRecorder
 from .config import ConfigStore
-from .constants import POLL_INTERVAL_SECONDS, PROCESSORS_DIR, TRIGGER_FILE
+from .constants import COMMAND_FILE, POLL_INTERVAL_SECONDS, PROCESSORS_DIR
 from .coordinator import DictationCoordinator, DictationState
 from .model_worker import WorkerManager
 from .output import MacOutput
@@ -20,18 +20,21 @@ except ImportError:  # Allows pure model tests without installing GUI dependenci
     rumps = None  # type: ignore[assignment]
 
 
-class TriggerWatcher:
-    def __init__(self, path: Path = TRIGGER_FILE) -> None:
+class CommandWatcher:
+    def __init__(self, path: Path = COMMAND_FILE) -> None:
         self.path = Path(path)
 
     def clear(self) -> None:
         self.path.unlink(missing_ok=True)
 
-    def poll(self) -> bool:
-        if not self.path.exists():
-            return False
-        self.path.unlink(missing_ok=True)
-        return True
+    def poll(self) -> str | None:
+        try:
+            command = self.path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return None
+        finally:
+            self.path.unlink(missing_ok=True)
+        return command.strip().lower() or None
 
 
 def status_presentation(state: DictationState) -> tuple[str, str]:
@@ -54,13 +57,13 @@ if rumps is not None:
             coordinator: DictationCoordinator,
             settings: SettingsWindowController,
             settings_model: SettingsModel,
-            watcher: TriggerWatcher | None = None,
+            watcher: CommandWatcher | None = None,
         ) -> None:
             super().__init__("STT", quit_button=None)
             self.coordinator = coordinator
             self.settings_controller = settings
             self.settings_model = settings_model
-            self.watcher = watcher or TriggerWatcher()
+            self.watcher = watcher or CommandWatcher()
             self.watcher.clear()
             self.status_item = rumps.MenuItem("Idle")
             self.menu = [
@@ -81,8 +84,9 @@ if rumps is not None:
 
         def _tick(self, _timer: Any) -> None:
             self.coordinator.refresh()
-            if self.watcher.poll():
-                self.coordinator.toggle()
+            command = self.watcher.poll()
+            if command is not None:
+                self.coordinator.handle_command(command)
 
         def _show_settings(self, _sender: Any) -> None:
             self.settings_controller.show()

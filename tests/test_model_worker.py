@@ -3,6 +3,7 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
+from local_dictation import model_worker
 from local_dictation.model_worker import TranscriptionError, WorkerManager
 
 
@@ -25,6 +26,8 @@ class FakeConnection:
 
     def recv(self):
         response = self.responses.pop(0)
+        if callable(response):
+            return response()
         if isinstance(response, BaseException):
             raise response
         return response
@@ -201,3 +204,19 @@ def test_worker_error_is_retried_then_reported():
 
     with pytest.raises(TranscriptionError, match="still bad"):
         manager.transcribe(np.ones(2, dtype=np.float32))
+
+
+def test_explicit_cancel_stops_worker_without_retry():
+    manager, context, _ = make_manager()
+
+    def cancel_then_disconnect():
+        manager.cancel()
+        raise EOFError
+
+    context.response_batches = [[cancel_then_disconnect]]
+
+    with pytest.raises(model_worker.TranscriptionCancelled):
+        manager.transcribe(np.ones(2, dtype=np.float32))
+
+    assert len(context.processes) == 1
+    assert not manager.is_running

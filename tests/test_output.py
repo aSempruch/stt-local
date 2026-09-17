@@ -40,6 +40,21 @@ def test_output_copies_utf8_then_pastes():
     assert keyboard.tapped == ["v"]
 
 
+def test_submit_output_pastes_then_presses_enter():
+    keyboard = FakeKeyboard()
+    output = MacOutput(
+        run=Mock(),
+        keyboard_factory=lambda: keyboard,
+        command_key="COMMAND",
+        enter_key="ENTER",
+        sleep=Mock(),
+    )
+
+    output.send("send it", press_enter=True)
+
+    assert keyboard.tapped == ["v", "ENTER"]
+
+
 def test_sounds_launch_without_waiting():
     popen = Mock()
     sounds = MacSounds(popen=popen)

@@ -4,7 +4,7 @@ APP_NAME = "Local Dictation"
 APPLICATION_SUPPORT_DIR = Path.home() / "Library" / "Application Support" / APP_NAME
 CONFIG_PATH = APPLICATION_SUPPORT_DIR / "config.json"
 PROCESSORS_DIR = APPLICATION_SUPPORT_DIR / "processors"
-TRIGGER_FILE = Path("/tmp/stt-toggle")
+COMMAND_FILE = Path("/tmp/stt-command")
 
 MODEL = "mlx-community/whisper-large-v3-turbo"
 LANGUAGE = "en"

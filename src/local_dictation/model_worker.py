@@ -21,6 +21,10 @@ class TranscriptionError(RuntimeError):
     pass
 
 
+class TranscriptionCancelled(TranscriptionError):
+    pass
+
+
 def _worker_main(
     connection: Connection,
     ready_event: Any,
@@ -95,6 +99,7 @@ class WorkerManager:
         self._connection: Any | None = None
         self._ready_event: Any | None = None
         self._idle_timer: Any | None = None
+        self._generation = 0
 
     @property
     def is_running(self) -> bool:
@@ -141,6 +146,8 @@ class WorkerManager:
 
     def transcribe(self, audio: np.ndarray) -> str:
         with self._request_lock:
+            with self._state_lock:
+                generation = self._generation
             last_error: Exception | None = None
             for _attempt in range(2):
                 try:
@@ -148,6 +155,9 @@ class WorkerManager:
                     self.schedule_idle_shutdown()
                     return text
                 except (EOFError, BrokenPipeError, OSError, TranscriptionError) as exc:
+                    with self._state_lock:
+                        if generation != self._generation:
+                            raise TranscriptionCancelled from exc
                     last_error = exc
                     self._stop_worker()
             raise TranscriptionError(
@@ -193,6 +203,12 @@ class WorkerManager:
         self.cancel_idle_shutdown()
         with self._request_lock:
             self._stop_worker()
+
+    def cancel(self) -> None:
+        self.cancel_idle_shutdown()
+        with self._state_lock:
+            self._generation += 1
+        self._stop_worker()
 
     def _stop_worker(self) -> None:
         with self._state_lock:

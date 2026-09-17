@@ -124,7 +124,7 @@ def test_stop_transcribes_processes_and_pastes_once():
     sounds.play_stop.assert_called_once_with()
     worker.transcribe.assert_called_once()
     processors.apply.assert_called_once_with("clean_up", "raw transcript")
-    output.send.assert_called_once_with("processed transcript")
+    output.send.assert_called_once_with("processed transcript", press_enter=False)
     worker.schedule_idle_shutdown.assert_called_once_with()
     assert DictationState.TRANSCRIBING in states
     assert coordinator.state is DictationState.IDLE
@@ -150,7 +150,7 @@ def test_processor_failure_notifies_and_pastes_raw_text():
 
     coordinator.stop_recording()
 
-    output.send.assert_called_once_with("raw transcript")
+    output.send.assert_called_once_with("raw transcript", press_enter=False)
     assert notifications == [("Processor failed", "processor bad")]
 
 
@@ -178,6 +178,60 @@ def test_microphone_start_failure_returns_to_idle():
     sounds.play_start.assert_not_called()
     assert notifications == [("Recording failed", "no microphone")]
     assert coordinator.state is DictationState.IDLE
+
+
+def test_cancel_discards_active_recording_without_transcription():
+    parts = make_coordinator()
+    coordinator, recorder, worker, _, output, sounds, *_ = parts
+    coordinator.start_recording()
+
+    coordinator.cancel()
+
+    recorder.abort.assert_called_once_with()
+    worker.transcribe.assert_not_called()
+    output.send.assert_not_called()
+    sounds.play_stop.assert_called_once_with()
+    worker.schedule_idle_shutdown.assert_called_once_with()
+    assert coordinator.state is DictationState.IDLE
+
+
+def test_cancel_during_transcription_kills_worker_without_output_or_error():
+    parts = make_coordinator()
+    coordinator, _, worker, _, output, _, _, notifications, _ = parts
+
+    def cancel_while_transcribing(_audio):
+        coordinator.cancel()
+        return "must not paste"
+
+    worker.transcribe.side_effect = cancel_while_transcribing
+    coordinator.start_recording()
+
+    coordinator.stop_recording()
+
+    worker.cancel.assert_called_once_with()
+    output.send.assert_not_called()
+    assert notifications == []
+    assert coordinator.state is DictationState.IDLE
+
+
+def test_submit_pastes_then_presses_enter():
+    parts = make_coordinator()
+    coordinator, _, _, _, output, *_ = parts
+    coordinator.start_recording()
+
+    coordinator.stop_recording(submit=True)
+
+    output.send.assert_called_once_with("processed transcript", press_enter=True)
+
+
+def test_handle_command_dispatches_and_reports_unknown_command():
+    parts = make_coordinator()
+    coordinator, recorder, _, _, _, _, _, notifications, _ = parts
+
+    assert coordinator.handle_command("toggle")
+    recorder.start.assert_called_once_with()
+    assert not coordinator.handle_command("mystery")
+    assert notifications == [("Unknown command", "mystery")]
 
 
 def test_shutdown_aborts_recording_and_stops_worker():
