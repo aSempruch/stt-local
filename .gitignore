@@ -1,6 +1,7 @@
 .DS_Store
 .pytest_cache/
 .venv/
+.worktrees/
 __pycache__/
 *.py[cod]
 *.wav
