@@ -1,0 +1,11 @@
+.DS_Store
+.pytest_cache/
+.venv/
+__pycache__/
+*.py[cod]
+*.wav
+*.npy
+.coverage
+htmlcov/
+dist/
+build/
