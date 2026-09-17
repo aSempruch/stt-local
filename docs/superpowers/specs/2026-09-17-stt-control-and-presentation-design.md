@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make the local dictation app feel like an STT utility rather than a prototype: use a native microphone menu-bar icon, a calmer start cue, a built-in casual-message processor, a single command-mailbox interface for shortcuts, and a repository path named `~/repos/stt-local`.
+Make STT Local feel like a focused speech-to-text utility: use a native microphone menu-bar icon, a calmer start cue, a built-in casual-message processor, a single command-mailbox interface for shortcuts, and the repository path `~/repos/stt-local`.
 
 ## Status-bar presentation
 
@@ -38,7 +38,7 @@ Submit mode presses Return only after nonempty processed text has been copied an
 
 ## Deployment migration
 
-After the feature branch is verified and merged, stop the installed LaunchAgent, remove its old generated plist, rename `/Users/alan/repos/local-dictation` to `/Users/alan/repos/stt-local`, and reinstall from the new root. Keep the stable launchd label `com.local-dictation.app`, application-support directory, logs, Python import package, and configuration so user settings continue to work.
+After the feature branch is verified and merged, reinstall the LaunchAgent from `/Users/alan/repos/stt-local`. Runtime identifiers, application-support paths, logs, and the Python import package use the STT Local identity consistently.
 
 Update the README, installer tests, BetterTouchTool examples, and context-vault source pointers. Verify tests before and after the move, verify launchd points at the new executable, verify `/tmp/stt-command` is consumed, and ensure the old repository path and trigger file are no longer referenced.
 

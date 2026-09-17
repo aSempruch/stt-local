@@ -21,7 +21,7 @@ uv run pytest -q
 Run directly during development:
 
 ```bash
-uv run local-dictation
+uv run stt-local
 ```
 
 The first recording downloads and warms `mlx-community/whisper-large-v3-turbo`. Model loading begins immediately after microphone capture starts. The worker remains available for follow-up dictation and exits after 10 idle minutes so macOS can reclaim all model and Metal memory.
@@ -64,7 +64,7 @@ Two processors are built in. **Plain Text** is selected by default and returns t
 Processor files live in:
 
 ```text
-~/Library/Application Support/Local Dictation/processors
+~/Library/Application Support/STT Local/processors
 ```
 
 Each processor is ordinary trusted Python:
@@ -78,7 +78,7 @@ Files beginning with `_` are ignored. A missing function, exception, or non-stri
 
 ## Install as a per-user service
 
-The installer synchronizes the environment, writes `~/Library/LaunchAgents/com.local-dictation.app.plist`, and starts the status-bar app:
+The installer synchronizes the environment, writes `~/Library/LaunchAgents/com.asempruch.stt-local.plist`, and starts the status-bar app:
 
 ```bash
 ./scripts/install-launch-agent.sh
@@ -87,17 +87,19 @@ The installer synchronizes the environment, writes `~/Library/LaunchAgents/com.l
 Logs are written to:
 
 ```text
-~/Library/Logs/Local Dictation/stdout.log
-~/Library/Logs/Local Dictation/stderr.log
+/tmp/stt-local.stdout.log
+/tmp/stt-local.stderr.log
 ```
+
+These are temporary diagnostic files rather than persistent application data.
 
 Restart after source or dependency changes by running the installer again.
 
 To stop and remove the service without deleting configuration or processors:
 
 ```bash
-launchctl bootout "gui/$(id -u)/com.local-dictation.app"
-rm "$HOME/Library/LaunchAgents/com.local-dictation.app.plist"
+launchctl bootout "gui/$(id -u)/com.asempruch.stt-local"
+rm "$HOME/Library/LaunchAgents/com.asempruch.stt-local.plist"
 ```
 
 ## Development controls
@@ -105,10 +107,10 @@ rm "$HOME/Library/LaunchAgents/com.local-dictation.app.plist"
 For idle-unload testing only, override the configured timeout when launching directly:
 
 ```bash
-LOCAL_DICTATION_IDLE_SECONDS=10 uv run local-dictation
+STT_LOCAL_IDLE_SECONDS=10 uv run stt-local
 ```
 
-The persisted configuration is `~/Library/Application Support/Local Dictation/config.json`. The default timeout is 600 seconds. The model, language (`en`), sample rate (16 kHz), and command path are fixed application constants.
+The persisted configuration is `~/Library/Application Support/STT Local/config.json`. The default timeout is 600 seconds. The model, language (`en`), sample rate (16 kHz), and command path are fixed application constants.
 
 ## Troubleshooting
 
@@ -116,4 +118,4 @@ The persisted configuration is `~/Library/Application Support/Local Dictation/co
 - **Text copies but does not paste:** Grant Accessibility permission to `.venv/bin/python`.
 - **First transcription is slow:** The model may still be downloading or warming. Later recordings reuse the resident worker.
 - **Processor is not listed:** Use Reload and confirm the file ends in `.py` and does not begin with `_`.
-- **Model RAM remains allocated:** Wait 10 idle minutes or quit Local Dictation; the dedicated model process then exits.
+- **Model RAM remains allocated:** Wait 10 idle minutes or quit STT Local; the dedicated model process then exits.

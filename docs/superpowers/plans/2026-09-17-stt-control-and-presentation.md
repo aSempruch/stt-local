@@ -23,7 +23,7 @@
 
 **Files:**
 - Modify: `tests/test_processors.py`
-- Modify: `src/local_dictation/processors.py`
+- Modify: `src/stt_local/processors.py`
 
 **Interfaces:**
 - Produces: `casual_discord(text: str) -> str` and built-in registry key `casual_discord`.
@@ -41,11 +41,11 @@
 - Modify: `tests/test_coordinator.py`
 - Modify: `tests/test_model_worker.py`
 - Modify: `tests/test_output.py`
-- Modify: `src/local_dictation/constants.py`
-- Modify: `src/local_dictation/app.py`
-- Modify: `src/local_dictation/coordinator.py`
-- Modify: `src/local_dictation/model_worker.py`
-- Modify: `src/local_dictation/output.py`
+- Modify: `src/stt_local/constants.py`
+- Modify: `src/stt_local/app.py`
+- Modify: `src/stt_local/coordinator.py`
+- Modify: `src/stt_local/model_worker.py`
+- Modify: `src/stt_local/output.py`
 
 **Interfaces:**
 - Produces: `CommandWatcher.poll() -> str | None`, `DictationCoordinator.handle_command(command: str) -> bool`, `DictationCoordinator.cancel() -> None`, `WorkerManager.cancel() -> None`, and `MacOutput.send(text: str, press_enter: bool = False) -> None`.
@@ -63,8 +63,8 @@
 **Files:**
 - Modify: `tests/test_app.py`
 - Modify: `tests/test_output.py`
-- Modify: `src/local_dictation/app.py`
-- Modify: `src/local_dictation/sounds.py`
+- Modify: `src/stt_local/app.py`
+- Modify: `src/stt_local/sounds.py`
 
 **Interfaces:**
 - Produces: `make_status_icon() -> NSImage` configured as template `mic.fill`.
@@ -81,7 +81,7 @@
 - Modify: `README.md`
 - Modify: `tests/test_install_script.py`
 - Modify after deployment: context-vault `Areas/Applications.md`
-- Modify after deployment: context-vault `Deployments/Local-Dictation-on-Mac.md`
+- Modify after deployment: context-vault `Deployments/STT-Local-on-Mac.md`
 
 **Interfaces:**
 - Consumes: commands and paths from Tasks 1–3.
@@ -91,7 +91,7 @@
 - [ ] Update installer behavior tests where repository paths are observable.
 - [ ] Run `uv run pytest -q`, compileall, shell syntax, and `git diff --check`.
 - [ ] Commit with `docs: update STT controls and deployment`.
-- [ ] Merge the verified feature branch locally, rerun the suite on main, stop launchd, remove linked worktrees, and rename the repository directory to `/Users/alan/repos/stt-local`.
+- [ ] Merge the verified feature branch locally, rerun the suite on main, stop launchd, clean linked worktrees, and reinstall from `/Users/alan/repos/stt-local`.
 - [ ] Reinstall the LaunchAgent from the new root and verify its running executable and `RunAtLoad` property.
 - [ ] Write a command to `/tmp/stt-command`, verify it is consumed, and verify there are no tracked or installed references to `/tmp/stt-toggle` or the old repository root.
 - [ ] Update and commit the context-vault pointers using the live deployment evidence.

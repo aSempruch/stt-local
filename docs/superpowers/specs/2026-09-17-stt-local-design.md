@@ -1,4 +1,4 @@
-# Local Dictation Design
+# STT Local Design
 
 ## Purpose
 
@@ -44,7 +44,7 @@ The worker remains alive after transcription. A 10-minute idle timer starts only
 - `model_worker.py`: multiprocessing protocol, Whisper warm-up, full-recording transcription, idle shutdown, and crash recovery.
 - `processors.py`: processor discovery, validation, execution, template creation, and selection persistence.
 - `settings.py`: native AppKit window for selecting, creating, reloading, and revealing processors.
-- `config.py`: paths and atomic JSON configuration persistence under `~/Library/Application Support/Local Dictation`.
+- `config.py`: paths and atomic JSON configuration persistence under `~/Library/Application Support/STT Local`.
 - `output.py`: clipboard write and Command-V injection.
 - `sounds.py`: non-blocking playback of distinct bundled/system start and stop sounds.
 
@@ -52,7 +52,7 @@ Each component has a narrow interface and can be tested with injected collaborat
 
 ## Python processors
 
-Processors live in `~/Library/Application Support/Local Dictation/processors`. Each `.py` file exports:
+Processors live in `~/Library/Application Support/STT Local/processors`. Each `.py` file exports:
 
 ```python
 def process(text: str) -> str:
@@ -99,4 +99,4 @@ Integration tests use fake audio and a fake worker; they exercise the complete t
 
 ## Repository and delivery
 
-The repository is `~/repos/local-dictation`. It starts with this design and the implementation produced from it; the supplied reference script is not committed as a baseline. Generated audio, model weights, caches, virtual environments, and user configuration are ignored. The README documents `uv sync`, launch, permissions, BetterTouchTool configuration, processor authoring, tests, and the development installation workflow.
+The repository is `~/repos/stt-local`. It starts with this design and the implementation produced from it; the supplied reference script is not committed as a baseline. Generated audio, model weights, caches, virtual environments, and user configuration are ignored. The README documents `uv sync`, launch, permissions, BetterTouchTool configuration, processor authoring, tests, and the development installation workflow.

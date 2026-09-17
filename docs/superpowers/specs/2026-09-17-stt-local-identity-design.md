@@ -16,11 +16,11 @@ All active code, metadata, runtime identifiers, documentation, and deployment ar
 | Console command | `stt-local` |
 | LaunchAgent | `com.asempruch.stt-local` |
 | Application Support | `~/Library/Application Support/STT Local` |
-| Logs | `~/Library/Logs/STT Local` |
+| Logs | `/tmp/stt-local.stdout.log` and `/tmp/stt-local.stderr.log` |
 | Environment prefix | `STT_LOCAL_` |
 | Command mailbox | `/tmp/stt-command` |
 
-The repository remains `~/repos/stt-local`. Historical Git commits are not rewritten. Current design/plan filenames and content, README, source, tests, and context-vault notes use STT Local terminology. The old development LaunchAgent, plist, support directory, and log directory are removed during deployment rather than migrated.
+The repository remains `~/repos/stt-local`. Historical Git commits are not rewritten. Current design/plan filenames and content, README, source, tests, and context-vault notes use STT Local terminology. Previous first-iteration service, support, and log artifacts are removed during deployment rather than migrated.
 
 ## Status item
 
@@ -41,7 +41,7 @@ Processor choices appear directly in the main status menu, not in a submenu. A d
 
 ## Deployment
 
-The installer generates `com.asempruch.stt-local.plist`, invokes `.venv/bin/stt-local`, logs under `~/Library/Logs/STT Local`, retains bounded launchd bootstrap retries, and prints the existing command-mailbox example. Deployment explicitly stops/removes `com.local-dictation.app`, deletes its generated plist and empty first-iteration support/log artifacts, then installs the new service.
+The installer generates `com.asempruch.stt-local.plist`, invokes `.venv/bin/stt-local`, writes temporary diagnostic logs to `/tmp/stt-local.stdout.log` and `/tmp/stt-local.stderr.log`, retains bounded launchd bootstrap retries, and prints the existing command-mailbox example. Deployment deletes the previous first-iteration artifacts, then installs the new service.
 
 ## Verification
 

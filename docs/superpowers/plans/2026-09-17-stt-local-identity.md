@@ -22,7 +22,7 @@
 ### Task 1: Package and runtime identity
 
 **Files:**
-- Rename: `src/local_dictation/` to `src/stt_local/`
+- Rename: Python import package to `src/stt_local/`
 - Modify: `pyproject.toml`
 - Modify: all `tests/test_*.py`
 - Modify: package source strings and environment names
