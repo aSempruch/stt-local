@@ -18,7 +18,7 @@ def test_install_script_generates_expected_launch_agent(tmp_path):
         "LOCAL_DICTATION_SKIP_LAUNCHCTL": "1",
     }
 
-    subprocess.run(
+    completed = subprocess.run(
         ["zsh", str(repository / "scripts" / "install-launch-agent.sh")],
         cwd=repository,
         env=env,
@@ -37,3 +37,5 @@ def test_install_script_generates_expected_launch_agent(tmp_path):
     assert plist["WorkingDirectory"] == str(repository)
     assert plist["StandardOutPath"].startswith(str(log_directory))
     assert plist["StandardErrorPath"].startswith(str(log_directory))
+    assert "printf '%s\\n' toggle > /tmp/stt-command" in completed.stdout
+    assert "/tmp/stt-toggle" not in completed.stdout

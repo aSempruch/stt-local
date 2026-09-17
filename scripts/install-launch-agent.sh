@@ -29,4 +29,4 @@ if [[ "${LOCAL_DICTATION_SKIP_LAUNCHCTL:-0}" != "1" ]]; then
 fi
 
 echo "Installed ${label}"
-echo "Toggle dictation with: /usr/bin/touch /tmp/stt-toggle"
+print -r -- "Toggle dictation with: printf '%s\n' toggle > /tmp/stt-command"

@@ -1,6 +1,6 @@
-# Local Dictation
+# STT Local
 
-A deliberately small, fully local macOS menu-bar dictation app. BetterTouchTool toggles recording by touching a file; Local Dictation records the current default microphone, transcribes the complete recording with MLX Whisper large-v3-turbo, optionally runs a trusted Python processor, and pastes the result once.
+A deliberately small, fully local macOS menu-bar dictation app. BetterTouchTool writes commands to a local mailbox; STT Local records the current default microphone, transcribes the complete recording with MLX Whisper large-v3-turbo, optionally runs a trusted Python processor, and pastes the result once.
 
 Accuracy is the priority. Recordings are not split or stitched, audio is never sent to a server, and partial text is never typed while you speak.
 
@@ -31,26 +31,35 @@ The first recording downloads and warms `mlx-community/whisper-large-v3-turbo`. 
 macOS should request Microphone permission on first capture. Pasting also requires Accessibility permission:
 
 1. Open **System Settings → Privacy & Security → Accessibility**.
-2. Add or enable this repository's `.venv/bin/python` executable. When running from Terminal during development, enable Terminal as well.
+2. Add or enable `~/repos/stt-local/.venv/bin/python`. When running from Terminal during development, enable Terminal as well.
 3. Open **Privacy & Security → Microphone** and enable the Python process when prompted.
 
 If capture works but Command-V does not, Accessibility permission is the likely cause. The completed transcript is still copied with `pbcopy` before the paste attempt.
 
 ## BetterTouchTool
 
-Configure the desired BetterTouchTool gesture or hotkey to run:
+The command mailbox is `/tmp/stt-command`. Configure BetterTouchTool gestures or hotkeys with these shell commands:
 
 ```bash
-/usr/bin/touch /tmp/stt-toggle
+# Start recording, or stop and transcribe normally
+printf '%s\n' toggle > /tmp/stt-command
+
+# Discard an active recording or cancel an active transcription
+printf '%s\n' cancel > /tmp/stt-command
+
+# Stop, transcribe, paste, then press Return
+printf '%s\n' submit > /tmp/stt-command
 ```
 
-The first touch starts recording and plays the start sound. The second stops recording and plays the stop sound immediately. Triggers received while the previous recording is stopping or transcribing are ignored.
+Toggle starts recording with a soft cue while idle and stops with the existing Pop cue while recording. Cancelled recordings are discarded. Cancelling active transcription terminates the model worker, so the next recording reloads the model. Unknown commands produce a notification and do nothing.
 
 The transcript is pasted into whichever application has focus when transcription finishes, so changing applications while speaking is safe.
 
 ## Python processors
 
 Choose **Settings…** from the status-bar menu. The window selects the active processor and provides **New Processor…**, **Reload**, and **Show in Finder** controls.
+
+Two processors are built in. **Plain Text** is selected by default and returns the transcript unchanged. **Casual Discord** lowercases the first letter unless it is the pronoun “I” and removes sentence-ending periods while preserving periods inside URLs, decimals, and versions.
 
 Processor files live in:
 
@@ -99,7 +108,7 @@ For idle-unload testing only, override the configured timeout when launching dir
 LOCAL_DICTATION_IDLE_SECONDS=10 uv run local-dictation
 ```
 
-The persisted configuration is `~/Library/Application Support/Local Dictation/config.json`. The default timeout is 600 seconds. The model, language (`en`), sample rate (16 kHz), and trigger path are fixed application constants.
+The persisted configuration is `~/Library/Application Support/Local Dictation/config.json`. The default timeout is 600 seconds. The model, language (`en`), sample rate (16 kHz), and command path are fixed application constants.
 
 ## Troubleshooting
 
