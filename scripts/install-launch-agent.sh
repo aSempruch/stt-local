@@ -25,7 +25,15 @@ plutil -create xml1 "${plist_path}"
 
 if [[ "${LOCAL_DICTATION_SKIP_LAUNCHCTL:-0}" != "1" ]]; then
     launchctl bootout "gui/$(id -u)/${label}" 2>/dev/null || true
-    launchctl bootstrap "gui/$(id -u)" "${plist_path}"
+    bootstrap_attempt=1
+    until launchctl bootstrap "gui/$(id -u)" "${plist_path}"; do
+        if (( bootstrap_attempt >= 10 )); then
+            echo "Failed to start ${label} after ${bootstrap_attempt} attempts" >&2
+            exit 1
+        fi
+        sleep 0.25
+        (( bootstrap_attempt += 1 ))
+    done
 fi
 
 echo "Installed ${label}"
