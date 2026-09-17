@@ -19,6 +19,15 @@ class FakeKeyboard:
         self.tapped.append(key)
 
 
+class ImmediateThread:
+    def __init__(self, *, target, daemon=True):
+        self.target = target
+        self.daemon = daemon
+
+    def start(self):
+        self.target()
+
+
 def test_output_copies_utf8_then_pastes():
     run = Mock()
     keyboard = FakeKeyboard()
@@ -57,7 +66,7 @@ def test_submit_output_pastes_then_presses_enter():
 
 def test_sounds_launch_without_waiting():
     popen = Mock()
-    sounds = MacSounds(popen=popen)
+    sounds = MacSounds(popen=popen, thread_factory=ImmediateThread)
 
     sounds.play_start()
     sounds.play_stop()
@@ -65,3 +74,4 @@ def test_sounds_launch_without_waiting():
     assert popen.call_count == 2
     assert popen.call_args_list[0].args[0][-1].endswith("Purr.aiff")
     assert popen.call_args_list[1].args[0][-1].endswith("Pop.aiff")
+    assert popen.return_value.wait.call_count == 2
