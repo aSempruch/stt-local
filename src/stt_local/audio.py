@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from .constants import SAMPLE_RATE
+from .constants import SAMPLE_RATE, STREAM_STOP_TIMEOUT_SECONDS
 
 
 def trim_trailing_silence(
@@ -42,10 +42,14 @@ class AudioRecorder:
         sample_rate: int = SAMPLE_RATE,
         stream_factory: Callable[..., Any] = _make_input_stream,
         refresh_devices: Callable[[], None] = _refresh_sounddevice,
+        thread_factory: Callable[..., Any] = threading.Thread,
+        stop_timeout: float = STREAM_STOP_TIMEOUT_SECONDS,
     ) -> None:
         self.sample_rate = sample_rate
         self._stream_factory = stream_factory
         self._refresh_devices = refresh_devices
+        self._thread_factory = thread_factory
+        self._stop_timeout = stop_timeout
         self._lock = threading.Lock()
         self._stream: Any | None = None
         self._frames: list[np.ndarray] | None = None
@@ -87,10 +91,7 @@ class AudioRecorder:
         stream, frames = self._detach()
         if stream is None:
             return np.empty(0, dtype=np.float32)
-        try:
-            stream.stop()
-        finally:
-            stream.close()
+        self._teardown(stream)
         if not frames:
             return np.empty(0, dtype=np.float32)
         return np.concatenate(frames, axis=0).reshape(-1).astype(np.float32, copy=False)
@@ -99,10 +100,22 @@ class AudioRecorder:
         stream, _ = self._detach()
         if stream is None:
             return
-        try:
-            stream.stop()
-        finally:
-            stream.close()
+        self._teardown(stream)
+
+    def _teardown(self, stream: Any) -> None:
+        # stream.stop()/close() call straight into CoreAudio with no timeout of
+        # its own; it can deadlock inside the OS audio HAL (observed in the
+        # wild). Run it on a thread and abandon that thread on timeout so a
+        # stuck native call can't freeze recording forever.
+        def close() -> None:
+            try:
+                stream.stop()
+            finally:
+                stream.close()
+
+        thread = self._thread_factory(target=close, daemon=True)
+        thread.start()
+        thread.join(self._stop_timeout)
 
     def _detach(self) -> tuple[Any | None, list[np.ndarray] | None]:
         with self._lock:

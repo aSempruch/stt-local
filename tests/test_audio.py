@@ -1,3 +1,5 @@
+import threading
+import time
 from unittest.mock import Mock
 
 import numpy as np
@@ -109,3 +111,70 @@ def test_start_rejects_overlapping_recording(recorder_parts):
 def test_stop_without_recording_returns_empty_audio(recorder_parts):
     recorder, _, _, _ = recorder_parts
     assert recorder.stop().size == 0
+
+
+class HangingStream(FakeStream):
+    """Simulates a CoreAudio stream.stop() that never returns."""
+
+    def __init__(self, callback, unblock: threading.Event):
+        super().__init__(callback)
+        self._unblock = unblock
+
+    def stop(self):
+        self._unblock.wait()
+        super().stop()
+
+
+def test_stop_recovers_when_stream_stop_hangs():
+    unblock = threading.Event()
+    streams: list[HangingStream] = []
+
+    def stream_factory(**kwargs):
+        stream = HangingStream(kwargs["callback"], unblock)
+        streams.append(stream)
+        return stream
+
+    recorder = AudioRecorder(
+        stream_factory=stream_factory,
+        refresh_devices=Mock(),
+        stop_timeout=0.05,
+    )
+    recorder.start()
+    streams[0].emit([0.1, 0.2])
+
+    started = time.monotonic()
+    result = recorder.stop()
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 1.0
+    assert np.allclose(result, [0.1, 0.2])
+    assert not recorder.is_recording
+    assert not streams[0].stopped  # the hung native call never completed
+
+    unblock.set()  # release the abandoned background thread
+
+
+def test_abort_recovers_when_stream_stop_hangs():
+    unblock = threading.Event()
+    streams: list[HangingStream] = []
+
+    def stream_factory(**kwargs):
+        stream = HangingStream(kwargs["callback"], unblock)
+        streams.append(stream)
+        return stream
+
+    recorder = AudioRecorder(
+        stream_factory=stream_factory,
+        refresh_devices=Mock(),
+        stop_timeout=0.05,
+    )
+    recorder.start()
+
+    started = time.monotonic()
+    recorder.abort()
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 1.0
+    assert not recorder.is_recording
+
+    unblock.set()
