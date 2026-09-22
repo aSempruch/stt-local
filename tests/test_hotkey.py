@@ -91,13 +91,13 @@ def test_recording_double_tap_submits_and_cancels_pending_single_tap():
     assert actions == ["submit"]
 
 
-def test_long_press_cancels_while_key_is_still_held_and_release_is_ignored():
+def test_long_press_cancels_only_on_release():
     gestures, _, actions, timers = make_gestures(DictationState.RECORDING_READY)
     gestures.press()
 
     timers[-1].fire()
 
-    assert actions == ["cancel"]
+    assert actions == []
     gestures.release()
     assert actions == ["cancel"]
 
@@ -109,6 +109,46 @@ def test_idle_long_press_does_not_start_recording():
     gestures.release()
 
     assert actions == ["cancel"]
+
+
+def test_command_shortcut_does_not_start_recording():
+    gestures, _, actions, timers = make_gestures()
+    gestures.press()
+    gestures.other_key_pressed()
+    assert timers[-1].cancelled
+    gestures.release()
+
+    assert actions == []
+
+
+def test_command_shortcut_does_not_stop_recording():
+    gestures, _, actions, _ = make_gestures(DictationState.RECORDING_READY)
+    gestures.press()
+    gestures.other_key_pressed()
+    gestures.release()
+
+    assert actions == []
+
+
+def test_command_shortcut_after_hold_threshold_does_not_cancel():
+    gestures, _, actions, timers = make_gestures(DictationState.RECORDING_READY)
+    gestures.press()
+    timers[-1].fire()
+    gestures.other_key_pressed()
+    gestures.release()
+
+    assert actions == []
+
+
+def test_command_shortcut_does_not_prevent_next_solo_tap():
+    gestures, _, actions, _ = make_gestures()
+    gestures.press()
+    gestures.other_key_pressed()
+    gestures.release()
+    gestures.press()
+    gestures.release()
+
+    assert actions == ["toggle"]
 
 
 def test_stop_cancels_pending_gesture_timers():
@@ -123,9 +163,10 @@ def test_stop_cancels_pending_gesture_timers():
 
 
 class FakeListener:
-    def __init__(self, on_press, on_release, *, trusted=True):
+    def __init__(self, on_press, on_release, on_other_key=None, *, trusted=True):
         self.on_press = on_press
         self.on_release = on_release
+        self.on_other_key = on_other_key
         self.IS_TRUSTED = trusted
         self.started = False
         self.waited = False
@@ -145,8 +186,8 @@ def test_monitor_starts_and_stops_listener():
     gestures, *_ = make_gestures()
     listeners = []
 
-    def listener_factory(on_press, on_release):
-        listener = FakeListener(on_press, on_release)
+    def listener_factory(on_press, on_release, on_other_key):
+        listener = FakeListener(on_press, on_release, on_other_key)
         listeners.append(listener)
         return listener
 
@@ -159,11 +200,29 @@ def test_monitor_starts_and_stops_listener():
     assert listeners[0].stopped
 
 
+def test_monitor_forwards_other_key_to_gestures():
+    gestures, _, actions, _ = make_gestures()
+    listeners = []
+
+    def listener_factory(on_press, on_release, on_other_key):
+        listener = FakeListener(on_press, on_release, on_other_key)
+        listeners.append(listener)
+        return listener
+
+    monitor = RightCommandMonitor(gestures, listener_factory=listener_factory)
+    monitor.start()
+    listeners[0].on_press()
+    listeners[0].on_other_key()
+    listeners[0].on_release()
+    assert actions == []
+    monitor.stop()
+
+
 def test_monitor_rejects_untrusted_listener():
     gestures, *_ = make_gestures()
     listener = FakeListener(None, None, trusted=False)
     monitor = RightCommandMonitor(
-        gestures, listener_factory=lambda _press, _release: listener
+        gestures, listener_factory=lambda _press, _release, _other: listener
     )
 
     try:

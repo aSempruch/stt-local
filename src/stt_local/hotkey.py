@@ -40,7 +40,8 @@ class RightCommandGestures:
         self._long_press_seconds = long_press_seconds
         self._lock = threading.RLock()
         self._is_down = False
-        self._long_press_fired = False
+        self._long_press_elapsed = False
+        self._chorded = False
         self._press_state = DictationState.IDLE
         self._second_tap = False
         self._ignore_short_tap = False
@@ -56,7 +57,8 @@ class RightCommandGestures:
             if self._is_down:
                 return
             self._is_down = True
-            self._long_press_fired = False
+            self._long_press_elapsed = False
+            self._chorded = False
             self._press_state = self._state()
             self._ignore_short_tap = self._start_guard_timer is not None
             self._second_tap = self._single_tap_timer is not None
@@ -81,14 +83,16 @@ class RightCommandGestures:
                 self._hold_timer.cancel()
                 self._hold_timer = None
                 self._hold_token = None
-            if self._long_press_fired:
-                self._long_press_fired = False
+            if self._chorded:
+                self._chorded = False
                 return
-            if self._ignore_short_tap:
+            if self._long_press_elapsed:
+                self._long_press_elapsed = False
+                action = self._cancel
+            elif self._ignore_short_tap:
                 self._ignore_short_tap = False
                 return
-
-            if self._press_state is DictationState.IDLE:
+            elif self._press_state is DictationState.IDLE:
                 action = self._toggle
                 start_guard_token = object()
                 self._start_guard_token = start_guard_token
@@ -113,6 +117,15 @@ class RightCommandGestures:
         if action is not None:
             action()
 
+    def other_key_pressed(self) -> None:
+        with self._lock:
+            if self._is_down:
+                self._chorded = True
+                if self._hold_timer is not None:
+                    self._hold_timer.cancel()
+                    self._hold_timer = None
+                    self._hold_token = None
+
     def stop(self) -> None:
         with self._lock:
             if self._hold_timer is not None:
@@ -128,6 +141,8 @@ class RightCommandGestures:
                 self._start_guard_timer = None
                 self._start_guard_token = None
             self._is_down = False
+            self._chorded = False
+            self._long_press_elapsed = False
             self._second_tap = False
             self._ignore_short_tap = False
 
@@ -138,16 +153,11 @@ class RightCommandGestures:
 
     def _fire_long_press(self, token: object) -> None:
         with self._lock:
-            if not self._is_down or self._hold_token is not token:
+            if not self._is_down or self._chorded or self._hold_token is not token:
                 return
-            self._long_press_fired = True
+            self._long_press_elapsed = True
             self._hold_timer = None
             self._hold_token = None
-            if self._single_tap_timer is not None:
-                self._single_tap_timer.cancel()
-                self._single_tap_timer = None
-                self._single_tap_token = None
-        self._cancel()
 
     def _fire_single_tap(self, token: object) -> None:
         with self._lock:
@@ -166,12 +176,16 @@ class RightCommandGestures:
 
 
 def _listener_factory(
-    on_press: Callable[[], None], on_release: Callable[[], None]
+    on_press: Callable[[], None],
+    on_release: Callable[[], None],
+    on_other_key: Callable[[], None],
 ) -> Any:
     from pynput import keyboard
 
     return keyboard.Listener(
-        on_press=lambda key: on_press() if key == keyboard.Key.cmd_r else None,
+        on_press=lambda key: on_press()
+        if key == keyboard.Key.cmd_r
+        else on_other_key(),
         on_release=lambda key: on_release() if key == keyboard.Key.cmd_r else None,
     )
 
@@ -181,7 +195,9 @@ class RightCommandMonitor:
         self,
         gestures: RightCommandGestures,
         *,
-        listener_factory: Callable[[Callable[[], None], Callable[[], None]], Any]
+        listener_factory: Callable[
+            [Callable[[], None], Callable[[], None], Callable[[], None]], Any
+        ]
         = _listener_factory,
     ) -> None:
         self._gestures = gestures
@@ -190,7 +206,9 @@ class RightCommandMonitor:
 
     def start(self) -> None:
         listener = self._listener_factory(
-            self._gestures.press, self._gestures.release
+            self._gestures.press,
+            self._gestures.release,
+            self._gestures.other_key_pressed,
         )
         listener.start()
         listener.wait()
