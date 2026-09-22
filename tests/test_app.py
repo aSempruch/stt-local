@@ -1,3 +1,5 @@
+from unittest.mock import Mock
+
 from stt_local import app
 from stt_local.app import status_presentation
 from stt_local.config import AppConfig, ConfigStore
@@ -31,6 +33,24 @@ def test_status_symbol_changes_with_workflow_state():
     assert app.status_symbol_name(DictationState.STOPPING) == "ellipsis.circle"
     assert app.status_symbol_name(DictationState.TRANSCRIBING) == "ellipsis.circle"
     assert app.status_symbol_name(DictationState.ERROR) == "exclamationmark.triangle"
+
+
+def test_audio_timeout_restarts_only_after_workflow_returns_to_idle():
+    coordinator = Mock()
+    coordinator.recorder.needs_restart = True
+    restart = Mock()
+
+    coordinator.state = DictationState.TRANSCRIBING
+    app.restart_if_audio_unusable(
+        coordinator, restart=restart, executable="/python", script="/stt-local"
+    )
+    restart.assert_not_called()
+
+    coordinator.state = DictationState.IDLE
+    app.restart_if_audio_unusable(
+        coordinator, restart=restart, executable="/python", script="/stt-local"
+    )
+    restart.assert_called_once_with("/python", ["/python", "/stt-local"])
 
 
 def test_processor_menu_lists_choices_and_persists_selection(tmp_path):

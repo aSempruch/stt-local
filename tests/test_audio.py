@@ -113,6 +113,39 @@ def test_stop_without_recording_returns_empty_audio(recorder_parts):
     assert recorder.stop().size == 0
 
 
+def test_start_times_out_without_blocking_the_app():
+    unblock = threading.Event()
+    finished = threading.Event()
+    streams = []
+
+    def stream_factory(**kwargs):
+        unblock.wait()
+        stream = FakeStream(kwargs["callback"])
+        streams.append(stream)
+        return stream
+
+    recorder = AudioRecorder(
+        stream_factory=stream_factory,
+        refresh_devices=Mock(),
+        start_timeout=0.05,
+    )
+    started = time.monotonic()
+
+    with pytest.raises(TimeoutError, match="microphone"):
+        recorder.start()
+
+    assert time.monotonic() - started < 1.0
+    assert not recorder.is_recording
+    assert recorder.needs_restart
+    unblock.set()
+    for _ in range(100):
+        if streams and streams[0].closed:
+            finished.set()
+            break
+        time.sleep(0.01)
+    assert finished.is_set()
+
+
 class HangingStream(FakeStream):
     """Simulates a CoreAudio stream.stop() that never returns."""
 
@@ -150,6 +183,7 @@ def test_stop_recovers_when_stream_stop_hangs():
     assert np.allclose(result, [0.1, 0.2])
     assert not recorder.is_recording
     assert not streams[0].stopped  # the hung native call never completed
+    assert recorder.needs_restart
 
     unblock.set()  # release the abandoned background thread
 
@@ -176,5 +210,6 @@ def test_abort_recovers_when_stream_stop_hangs():
 
     assert elapsed < 1.0
     assert not recorder.is_recording
+    assert recorder.needs_restart
 
     unblock.set()

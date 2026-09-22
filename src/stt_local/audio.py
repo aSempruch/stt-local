@@ -43,46 +43,90 @@ class AudioRecorder:
         stream_factory: Callable[..., Any] = _make_input_stream,
         refresh_devices: Callable[[], None] = _refresh_sounddevice,
         thread_factory: Callable[..., Any] = threading.Thread,
+        start_timeout: float = 5.0,
         stop_timeout: float = STREAM_STOP_TIMEOUT_SECONDS,
     ) -> None:
         self.sample_rate = sample_rate
         self._stream_factory = stream_factory
         self._refresh_devices = refresh_devices
         self._thread_factory = thread_factory
+        self._start_timeout = start_timeout
         self._stop_timeout = stop_timeout
         self._lock = threading.Lock()
         self._stream: Any | None = None
         self._frames: list[np.ndarray] | None = None
+        self._needs_restart = False
 
     @property
     def is_recording(self) -> bool:
         with self._lock:
             return self._stream is not None
 
+    @property
+    def needs_restart(self) -> bool:
+        with self._lock:
+            return self._needs_restart
+
     def start(self) -> None:
         with self._lock:
             if self._stream is not None:
                 raise RuntimeError("AudioRecorder is already recording")
 
-        self._refresh_devices()
         frames: list[np.ndarray] = []
 
         def capture(indata: np.ndarray, *_args: Any) -> None:
             frames.append(indata.copy())
 
-        stream = self._stream_factory(
-            samplerate=self.sample_rate,
-            channels=1,
-            dtype="float32",
-            callback=capture,
-        )
-        try:
-            stream.start()
-        except Exception:
+        result: dict[str, Any] = {}
+        completed = threading.Event()
+        handoff_lock = threading.Lock()
+        abandoned = False
+
+        def open_stream() -> None:
+            nonlocal abandoned
             try:
-                stream.close()
+                self._refresh_devices()
+                stream = self._stream_factory(
+                    samplerate=self.sample_rate,
+                    channels=1,
+                    dtype="float32",
+                    callback=capture,
+                )
+                try:
+                    stream.start()
+                except Exception:
+                    stream.close()
+                    raise
+                with handoff_lock:
+                    close_abandoned = abandoned
+                    if not close_abandoned:
+                        result["stream"] = stream
+                if close_abandoned:
+                    try:
+                        stream.stop()
+                    finally:
+                        stream.close()
+                    return
+            except Exception as exc:
+                result["error"] = exc
             finally:
-                raise
+                completed.set()
+
+        thread = self._thread_factory(target=open_stream, daemon=True)
+        thread.start()
+        if not completed.wait(self._start_timeout):
+            self._mark_needs_restart()
+            with handoff_lock:
+                abandoned = True
+                orphaned_stream = result.get("stream")
+            if orphaned_stream is not None:
+                self._thread_factory(
+                    target=lambda: self._teardown(orphaned_stream), daemon=True
+                ).start()
+            raise TimeoutError("Opening the microphone timed out")
+        if "error" in result:
+            raise result["error"]
+        stream = result["stream"]
         with self._lock:
             self._stream = stream
             self._frames = frames
@@ -116,6 +160,12 @@ class AudioRecorder:
         thread = self._thread_factory(target=close, daemon=True)
         thread.start()
         thread.join(self._stop_timeout)
+        if thread.is_alive():
+            self._mark_needs_restart()
+
+    def _mark_needs_restart(self) -> None:
+        with self._lock:
+            self._needs_restart = True
 
     def _detach(self) -> tuple[Any | None, list[np.ndarray] | None]:
         with self._lock:

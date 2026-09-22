@@ -20,7 +20,7 @@ class FakeTimer:
             self.callback()
 
 
-def make_gestures(initial_state=DictationState.IDLE):
+def make_gestures(initial_state=DictationState.IDLE, clock=None):
     current = [initial_state]
     actions = []
     timers = []
@@ -30,12 +30,14 @@ def make_gestures(initial_state=DictationState.IDLE):
         timers.append(timer)
         return timer
 
+    options = {"clock": clock} if clock is not None else {}
     gestures = RightCommandGestures(
         state=lambda: current[0],
         toggle=lambda: actions.append("toggle"),
         submit=lambda: actions.append("submit"),
         cancel=lambda: actions.append("cancel"),
         timer_factory=timer_factory,
+        **options,
     )
     return gestures, current, actions, timers
 
@@ -77,11 +79,15 @@ def test_recording_single_tap_waits_for_short_double_tap_window():
 
 
 def test_recording_double_tap_submits_and_cancels_pending_single_tap():
-    gestures, _, actions, timers = make_gestures(DictationState.RECORDING_READY)
+    now = [0.0]
+    gestures, _, actions, timers = make_gestures(
+        DictationState.RECORDING_READY, clock=lambda: now[0]
+    )
     gestures.press()
     gestures.release()
     single_tap_timer = timers[-1]
 
+    now[0] = 0.10
     gestures.press()
     gestures.release()
 
@@ -89,6 +95,23 @@ def test_recording_double_tap_submits_and_cancels_pending_single_tap():
     assert actions == ["submit"]
     single_tap_timer.fire()
     assert actions == ["submit"]
+
+
+def test_very_fast_duplicate_press_does_not_turn_single_tap_into_submit():
+    now = [0.0]
+    gestures, _, actions, timers = make_gestures(
+        DictationState.RECORDING_READY, clock=lambda: now[0]
+    )
+    gestures.press()
+    gestures.release()
+    single_tap_timer = timers[-1]
+
+    now[0] = 0.02
+    gestures.press()
+    gestures.release()
+    single_tap_timer.fire()
+
+    assert actions == ["toggle"]
 
 
 def test_long_press_cancels_only_on_release():

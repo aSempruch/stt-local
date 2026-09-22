@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -8,6 +9,7 @@ from .coordinator import DictationState
 
 
 DOUBLE_TAP_SECONDS = 0.20
+MIN_DOUBLE_TAP_SECONDS = 0.06
 LONG_PRESS_SECONDS = 0.70
 
 
@@ -28,6 +30,7 @@ class RightCommandGestures:
         submit: Callable[[], None],
         cancel: Callable[[], None],
         timer_factory: Callable[[float, Callable[[], None]], Any] = _timer_factory,
+        clock: Callable[[], float] = time.monotonic,
         double_tap_seconds: float = DOUBLE_TAP_SECONDS,
         long_press_seconds: float = LONG_PRESS_SECONDS,
     ) -> None:
@@ -36,6 +39,7 @@ class RightCommandGestures:
         self._submit = submit
         self._cancel = cancel
         self._timer_factory = timer_factory
+        self._clock = clock
         self._double_tap_seconds = double_tap_seconds
         self._long_press_seconds = long_press_seconds
         self._lock = threading.RLock()
@@ -44,6 +48,7 @@ class RightCommandGestures:
         self._chorded = False
         self._press_state = DictationState.IDLE
         self._second_tap = False
+        self._last_release_at: float | None = None
         self._ignore_short_tap = False
         self._hold_timer: Any | None = None
         self._single_tap_timer: Any | None = None
@@ -55,6 +60,12 @@ class RightCommandGestures:
     def press(self) -> None:
         with self._lock:
             if self._is_down:
+                return
+            if (
+                self._single_tap_timer is not None
+                and self._last_release_at is not None
+                and self._clock() - self._last_release_at < MIN_DOUBLE_TAP_SECONDS
+            ):
                 return
             self._is_down = True
             self._long_press_elapsed = False
@@ -79,6 +90,7 @@ class RightCommandGestures:
             if not self._is_down:
                 return
             self._is_down = False
+            self._last_release_at = self._clock()
             if self._hold_timer is not None:
                 self._hold_timer.cancel()
                 self._hold_timer = None
@@ -144,6 +156,7 @@ class RightCommandGestures:
             self._chorded = False
             self._long_press_elapsed = False
             self._second_tap = False
+            self._last_release_at = None
             self._ignore_short_tap = False
 
     def _new_timer(self, delay: float, callback: Callable[[], None]) -> Any:

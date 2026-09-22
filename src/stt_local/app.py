@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from typing import Any
 
 from .audio import AudioRecorder
@@ -54,6 +55,22 @@ def make_status_icon(symbol_name: str) -> Any:
     image = image.imageWithSymbolConfiguration_(configuration)
     image.setTemplate_(True)
     return image
+
+
+def restart_if_audio_unusable(
+    coordinator: DictationCoordinator,
+    *,
+    restart: Any = os.execv,
+    executable: str | None = None,
+    script: str | None = None,
+) -> None:
+    if (
+        coordinator.state is DictationState.IDLE
+        and coordinator.recorder.needs_restart
+    ):
+        executable = executable or sys.executable
+        script = script or sys.argv[0]
+        restart(executable, [executable, script])
 
 
 class ProcessorMenu:
@@ -135,6 +152,9 @@ if rumps is not None:
 
         def _tick(self, _timer: Any) -> None:
             self.coordinator.refresh()
+            # A timed-out CoreAudio call can leave PortAudio locked in this
+            # process. Replace it once transcription is finished.
+            restart_if_audio_unusable(self.coordinator)
 
         def _show_settings(self, _sender: Any) -> None:
             self.settings_controller.show()

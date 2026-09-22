@@ -122,6 +122,7 @@ The persisted configuration is `~/Library/Application Support/STT Local/config.j
 ## Troubleshooting
 
 - **No sound or recording:** Verify Microphone permission and the current macOS default input device.
+- **Microphone opening times out:** A CoreAudio device refresh can stall after a stuck audio stream. STT Local automatically restarts once the current dictation workflow returns to idle; the next recording may need to reload the model.
 - **Text copies but does not paste:** Grant Accessibility permission to `.venv/bin/python`.
 - **First transcription is slow:** The model may still be downloading or warming. Later recordings reuse the resident worker.
 - **Processor is not listed:** Use Reload and confirm the file ends in `.py` and does not begin with `_`.
