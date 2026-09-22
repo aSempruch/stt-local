@@ -114,13 +114,13 @@ def test_very_fast_duplicate_press_does_not_turn_single_tap_into_submit():
     assert actions == ["toggle"]
 
 
-def test_long_press_cancels_only_on_release():
+def test_long_press_cancels_as_soon_as_threshold_is_reached():
     gestures, _, actions, timers = make_gestures(DictationState.RECORDING_READY)
     gestures.press()
 
     timers[-1].fire()
 
-    assert actions == []
+    assert actions == ["cancel"]
     gestures.release()
     assert actions == ["cancel"]
 
@@ -153,14 +153,24 @@ def test_command_shortcut_does_not_stop_recording():
     assert actions == []
 
 
-def test_command_shortcut_after_hold_threshold_does_not_cancel():
+def test_command_shortcut_before_hold_threshold_does_not_cancel():
+    gestures, _, actions, timers = make_gestures(DictationState.RECORDING_READY)
+    gestures.press()
+    gestures.other_key_pressed()
+    timers[-1].fire()
+    gestures.release()
+
+    assert actions == []
+
+
+def test_other_key_after_hold_activates_cannot_undo_cancel():
     gestures, _, actions, timers = make_gestures(DictationState.RECORDING_READY)
     gestures.press()
     timers[-1].fire()
     gestures.other_key_pressed()
     gestures.release()
 
-    assert actions == []
+    assert actions == ["cancel"]
 
 
 def test_command_shortcut_does_not_prevent_next_solo_tap():

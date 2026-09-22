@@ -44,7 +44,7 @@ class RightCommandGestures:
         self._long_press_seconds = long_press_seconds
         self._lock = threading.RLock()
         self._is_down = False
-        self._long_press_elapsed = False
+        self._long_press_fired = False
         self._chorded = False
         self._press_state = DictationState.IDLE
         self._second_tap = False
@@ -68,7 +68,7 @@ class RightCommandGestures:
             ):
                 return
             self._is_down = True
-            self._long_press_elapsed = False
+            self._long_press_fired = False
             self._chorded = False
             self._press_state = self._state()
             self._ignore_short_tap = self._start_guard_timer is not None
@@ -98,10 +98,10 @@ class RightCommandGestures:
             if self._chorded:
                 self._chorded = False
                 return
-            if self._long_press_elapsed:
-                self._long_press_elapsed = False
-                action = self._cancel
-            elif self._ignore_short_tap:
+            if self._long_press_fired:
+                self._long_press_fired = False
+                return
+            if self._ignore_short_tap:
                 self._ignore_short_tap = False
                 return
             elif self._press_state is DictationState.IDLE:
@@ -154,7 +154,7 @@ class RightCommandGestures:
                 self._start_guard_token = None
             self._is_down = False
             self._chorded = False
-            self._long_press_elapsed = False
+            self._long_press_fired = False
             self._second_tap = False
             self._last_release_at = None
             self._ignore_short_tap = False
@@ -168,9 +168,14 @@ class RightCommandGestures:
         with self._lock:
             if not self._is_down or self._chorded or self._hold_token is not token:
                 return
-            self._long_press_elapsed = True
+            self._long_press_fired = True
             self._hold_timer = None
             self._hold_token = None
+            if self._single_tap_timer is not None:
+                self._single_tap_timer.cancel()
+                self._single_tap_timer = None
+                self._single_tap_token = None
+        self._cancel()
 
     def _fire_single_tap(self, token: object) -> None:
         with self._lock:
