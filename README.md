@@ -4,37 +4,51 @@ A deliberately small, fully local macOS menu-bar dictation app. A built-in Right
 
 Accuracy is the priority. Recordings are not split or stitched, audio is never sent to a server, and partial text is never typed while you speak.
 
-## Requirements
+## Installation
+
+### 1. Check requirements
 
 - Apple-silicon Mac running macOS 14 or newer
 - Python 3.11 or newer
-- [`uv`](https://docs.astral.sh/uv/)
-- Microphone and Accessibility permission for the Python executable
+- [`uv`](https://docs.astral.sh/uv/) installed and available in your terminal
+- Git (if macOS prompts you to install Command Line Tools when running `git`, complete that first)
+- An internet connection to download dependencies and the model on first use; transcription runs locally
 
-Install dependencies and run the tests:
+### 2. Clone and install
 
-```bash
-uv sync --all-groups
-uv run pytest -q
-```
-
-Run directly during development:
+Open Terminal and run:
 
 ```bash
-uv run stt-local
+mkdir -p ~/repos
+cd ~/repos
+git clone https://github.com/aSempruch/stt-local.git
+cd stt-local
+./scripts/install-launch-agent.sh
 ```
 
-The first recording downloads and warms `mlx-community/whisper-large-v3-turbo`. Model loading begins immediately after microphone capture starts. The worker remains available for follow-up dictation and exits after 10 idle minutes so macOS can reclaim all model and Metal memory.
+The installer installs dependencies, creates a per-user LaunchAgent, and starts STT Local. Look for the microphone icon in your menu bar. The app will also start automatically when you log in.
 
-## Permissions
+Keep the repository in this location: the installed service runs from its `.venv`. If you choose a different location, use that path in the permission steps below.
+
+### 3. Permissions
 
 macOS should request Microphone permission on first capture. Monitoring Right Command and pasting require Accessibility permission:
 
 1. Open **System Settings → Privacy & Security → Accessibility**.
-2. Add or enable `~/repos/stt-local/.venv/bin/python`. When running from Terminal during development, enable Terminal as well.
+2. Add or enable `~/repos/stt-local/.venv/bin/python`. In the file picker, press **Command-Shift-G** to enter the path. When running from Terminal during development, enable Terminal as well.
 3. Open **Privacy & Security → Microphone** and enable the Python process when prompted.
 
 If Right Command does nothing or Command-V is not synthesized, Accessibility permission is the likely cause. macOS may also list the interpreter under **Privacy & Security → Input Monitoring**. The completed transcript is still copied with `pbcopy` before the paste attempt.
+
+### 4. Try your first dictation
+
+1. Focus a text field, such as a new TextEdit document.
+2. Tap and release **Right Command**, then speak. Approve Microphone access if prompted; if recording did not start, tap again after granting access.
+3. Tap and release **Right Command** again to stop. Wait for the transcript to appear in the focused app.
+
+The first recording downloads and warms `mlx-community/whisper-large-v3-turbo`, so it takes longer. Model loading begins immediately after microphone capture starts. The worker remains available for follow-up dictation and exits after 10 idle minutes so macOS can reclaim all model and Metal memory.
+
+See [Troubleshooting](#troubleshooting) if recording or pasting does not work.
 
 ## Keyboard controls
 
@@ -70,13 +84,17 @@ def process(text: str) -> str:
 
 Files beginning with `_` are ignored. A missing function, exception, or non-string return value produces a notification and falls back to the unmodified transcript. Processor code is intentionally unsandboxed and should be treated like any other local script you run.
 
-## Install as a per-user service
+## Updating and managing the service
 
-The installer synchronizes the environment, writes `~/Library/LaunchAgents/com.asempruch.stt-local.plist`, and starts the status-bar app:
+To update an installation made with the steps above, run:
 
 ```bash
+cd ~/repos/stt-local
+git pull
 ./scripts/install-launch-agent.sh
 ```
+
+Run the installer again after source or dependency changes to synchronize the environment and restart the app. It writes `~/Library/LaunchAgents/com.asempruch.stt-local.plist`.
 
 Logs are written to:
 
@@ -86,8 +104,6 @@ Logs are written to:
 ```
 
 These are temporary diagnostic files rather than persistent application data.
-
-Restart after source or dependency changes by running the installer again.
 
 `launchctl bootout` only stops and unloads the service. To start an installed
 service after booting it out, either rerun the installer above or bootstrap its
@@ -105,11 +121,20 @@ launchctl bootout "gui/$(id -u)/com.asempruch.stt-local"
 rm "$HOME/Library/LaunchAgents/com.asempruch.stt-local.plist"
 ```
 
-## License
+## Development
 
-STT Local is available under the [MIT License](LICENSE).
+From the repository directory, install development dependencies and run the tests:
 
-## Development controls
+```bash
+uv sync --all-groups
+uv run pytest -q
+```
+
+Quit the menu-bar app before running a development instance directly:
+
+```bash
+uv run stt-local
+```
 
 For idle-unload testing only, override the configured timeout when launching directly:
 
@@ -127,3 +152,7 @@ The persisted configuration is `~/Library/Application Support/STT Local/config.j
 - **First transcription is slow:** The model may still be downloading or warming. Later recordings reuse the resident worker.
 - **Processor is not listed:** Use Reload and confirm the file ends in `.py` and does not begin with `_`.
 - **Model RAM remains allocated:** Wait 10 idle minutes or quit STT Local; the dedicated model process then exits.
+
+## License
+
+STT Local is available under the [MIT License](LICENSE).
