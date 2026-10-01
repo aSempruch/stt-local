@@ -29,6 +29,8 @@ def test_install_script_generates_expected_launch_agent(tmp_path):
         plist = plistlib.load(handle)
     assert plist["Label"] == "com.asempruch.stt-local"
     assert plist["RunAtLoad"] is True
+    # Restart after a crash, but not after Quit from the menu.
+    assert plist["KeepAlive"] == {"SuccessfulExit": False}
     assert plist["ProgramArguments"] == [
         str(repository / ".venv" / "bin" / "stt-local")
     ]

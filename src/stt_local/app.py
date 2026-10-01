@@ -10,7 +10,7 @@ from .constants import POLL_INTERVAL_SECONDS, PROCESSORS_DIR
 from .coordinator import DictationCoordinator, DictationState
 from .hotkey import RightCommandGestures, RightCommandMonitor
 from .model_worker import WorkerManager
-from .output import MacOutput
+from .output import MacOutput, call_on_main_thread
 from .overlay import DictationOverlay
 from .processors import ProcessorRegistry
 from .settings import SettingsModel, SettingsWindowController
@@ -202,7 +202,7 @@ def build_app() -> Any:
             prompt=lambda: settings_model.bias_prompt,
         ),
         processors=registry,
-        output=MacOutput(),
+        output=MacOutput(on_main=call_on_main_thread),
         sounds=MacSounds(),
         selected_processor=lambda: settings_model.selected_processor,
         notification_callback=notify,
