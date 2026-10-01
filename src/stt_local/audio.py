@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import threading
+from collections import deque
 from collections.abc import Callable
 from typing import Any
 
 import numpy as np
 
 from .constants import SAMPLE_RATE, STREAM_STOP_TIMEOUT_SECONDS
+
+LEVEL_HISTORY = 128
 
 
 def trim_trailing_silence(
@@ -55,6 +58,7 @@ class AudioRecorder:
         self._lock = threading.Lock()
         self._stream: Any | None = None
         self._frames: list[np.ndarray] | None = None
+        self._levels: deque[float] | None = None
         self._needs_restart = False
 
     @property
@@ -67,15 +71,26 @@ class AudioRecorder:
         with self._lock:
             return self._needs_restart
 
+    def recent_levels(self, count: int) -> list[float]:
+        """RMS of the most recent capture blocks, oldest first."""
+        with self._lock:
+            levels = self._levels
+        if levels is None or count <= 0:
+            return []
+        return list(levels)[-count:]
+
     def start(self) -> None:
         with self._lock:
             if self._stream is not None:
                 raise RuntimeError("AudioRecorder is already recording")
 
         frames: list[np.ndarray] = []
+        levels: deque[float] = deque(maxlen=LEVEL_HISTORY)
 
         def capture(indata: np.ndarray, *_args: Any) -> None:
             frames.append(indata.copy())
+            if indata.size:
+                levels.append(float(np.sqrt(np.mean(np.square(indata)))))
 
         result: dict[str, Any] = {}
         completed = threading.Event()
@@ -130,6 +145,7 @@ class AudioRecorder:
         with self._lock:
             self._stream = stream
             self._frames = frames
+            self._levels = levels
 
     def stop(self) -> np.ndarray:
         stream, frames = self._detach()
@@ -173,4 +189,5 @@ class AudioRecorder:
             frames = self._frames
             self._stream = None
             self._frames = None
+            self._levels = None
         return stream, frames

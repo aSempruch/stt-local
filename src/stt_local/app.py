@@ -11,6 +11,7 @@ from .coordinator import DictationCoordinator, DictationState
 from .hotkey import RightCommandGestures, RightCommandMonitor
 from .model_worker import WorkerManager
 from .output import MacOutput
+from .overlay import DictationOverlay
 from .processors import ProcessorRegistry
 from .settings import SettingsModel, SettingsWindowController
 from .sounds import MacSounds
@@ -102,6 +103,7 @@ if rumps is not None:
             settings: SettingsWindowController,
             settings_model: SettingsModel,
             monitor: RightCommandMonitor,
+            overlay: DictationOverlay | None = None,
         ) -> None:
             super().__init__("STT Local", title=None, quit_button=None)
             self._icon_nsimage = make_status_icon(
@@ -114,6 +116,7 @@ if rumps is not None:
                 settings_model, self._rebuild_menu
             )
             self.monitor = monitor
+            self.overlay = overlay
             self.status_item = rumps.MenuItem("Idle")
             self._rebuild_menu()
             self._timer = rumps.Timer(self._tick, POLL_INTERVAL_SECONDS)
@@ -149,6 +152,8 @@ if rumps is not None:
             except AttributeError:
                 pass
             self.status_item.title = status
+            if self.overlay is not None:
+                self.overlay.set_state(state)
 
         def _tick(self, _timer: Any) -> None:
             self.coordinator.refresh()
@@ -165,6 +170,8 @@ if rumps is not None:
         def _quit(self, _sender: Any) -> None:
             self._timer.stop()
             self.monitor.stop()
+            if self.overlay is not None:
+                self.overlay.close()
             self.coordinator.shutdown()
             rumps.quit_application()
 
@@ -187,8 +194,9 @@ def build_app() -> Any:
         rumps.notification(title, "STT Local", message)
 
     settings = SettingsWindowController(settings_model, notify)
+    recorder = AudioRecorder()
     coordinator = DictationCoordinator(
-        recorder=AudioRecorder(),
+        recorder=recorder,
         worker=WorkerManager(
             idle_seconds=idle_seconds,
             prompt=lambda: settings_model.bias_prompt,
@@ -216,6 +224,7 @@ def build_app() -> Any:
         settings=settings,
         settings_model=settings_model,
         monitor=RightCommandMonitor(gestures),
+        overlay=DictationOverlay(recorder.recent_levels),
     )
     coordinator.status_callback = app.update_status
     app.update_status(DictationState.IDLE)

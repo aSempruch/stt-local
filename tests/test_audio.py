@@ -213,3 +213,21 @@ def test_abort_recovers_when_stream_stop_hangs():
     assert recorder.needs_restart
 
     unblock.set()
+
+
+def test_recent_levels_track_block_rms_and_reset_per_recording(recorder_parts):
+    recorder, streams, _, _ = recorder_parts
+    assert recorder.recent_levels(4) == []
+
+    recorder.start()
+    streams[0].emit([0.0, 0.0])
+    streams[0].emit([0.5, -0.5])
+    streams[0].emit([0.3, 0.4])
+
+    levels = recorder.recent_levels(2)
+    assert levels == pytest.approx([0.5, np.sqrt((0.09 + 0.16) / 2)])
+    assert len(recorder.recent_levels(10)) == 3
+
+    recorder.stop()
+    recorder.start()
+    assert recorder.recent_levels(4) == []
