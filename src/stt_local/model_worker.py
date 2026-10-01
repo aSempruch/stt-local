@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import multiprocessing
+import ssl
 import threading
+import traceback
 from collections.abc import Callable
 from multiprocessing.connection import Connection
 from typing import Any
@@ -42,6 +44,54 @@ def transcription_options(
     return options
 
 
+def use_system_certificates() -> None:
+    """Verify HTTPS against the macOS keychain instead of certifi's bundle,
+    so model downloads work behind TLS-inspecting proxies such as Zscaler
+    whose root certificate is installed in the keychain."""
+    try:
+        import truststore
+    except ImportError:
+        return
+    truststore.inject_into_ssl()
+
+
+def _exception_chain(exc: BaseException) -> list[BaseException]:
+    chain: list[BaseException] = []
+    current: BaseException | None = exc
+    while current is not None and current not in chain:
+        chain.append(current)
+        current = current.__cause__ or current.__context__
+    return chain
+
+
+def describe_load_error(exc: BaseException, model_name: str) -> str:
+    chain = _exception_chain(exc)
+    details = f"{type(exc).__name__}: {exc}"
+    if any(
+        isinstance(item, ssl.SSLCertVerificationError)
+        or "CERTIFICATE_VERIFY_FAILED" in str(item)
+        or "certificate is not trusted" in str(item)
+        for item in chain
+    ):
+        return (
+            f"Couldn't download the Whisper model {model_name}: the HTTPS "
+            "certificate is not trusted. A network filter such as Zscaler is "
+            "probably intercepting the connection; trust its root certificate "
+            "in Keychain Access, then try again."
+        )
+    if any(
+        type(item).__name__
+        in {"ConnectError", "ConnectTimeout", "ConnectionError", "LocalEntryNotFoundError"}
+        or isinstance(item, (ConnectionError, TimeoutError))
+        for item in chain
+    ):
+        return (
+            f"Couldn't download the Whisper model {model_name}. Check the "
+            f"network connection, then try again. ({details})"
+        )
+    return f"Couldn't load the Whisper model {model_name}. ({details})"
+
+
 def _worker_main(
     connection: Connection,
     ready_event: Any,
@@ -50,6 +100,7 @@ def _worker_main(
     sample_rate: int,
 ) -> None:
     try:
+        use_system_certificates()
         import mlx_whisper
 
         mlx_whisper.transcribe(
@@ -59,7 +110,8 @@ def _worker_main(
         ready_event.set()
         connection.send({"type": "ready"})
     except Exception as exc:
-        connection.send({"type": "error", "error": f"{type(exc).__name__}: {exc}"})
+        traceback.print_exc()
+        connection.send({"type": "error", "error": describe_load_error(exc, model_name)})
         connection.close()
         return
 
@@ -85,6 +137,7 @@ def _worker_main(
             result = mlx_whisper.transcribe(audio, **options)
             connection.send({"type": "result", "text": result["text"].strip()})
         except Exception as exc:
+            traceback.print_exc()
             connection.send(
                 {"type": "error", "error": f"{type(exc).__name__}: {exc}"}
             )
@@ -177,8 +230,12 @@ class WorkerManager:
                             raise TranscriptionCancelled from exc
                     last_error = exc
                     self._stop_worker()
+            if isinstance(last_error, TranscriptionError):
+                # The worker already described the problem in plain language.
+                raise TranscriptionError(str(last_error)) from last_error
             raise TranscriptionError(
-                f"Transcription failed after retry: {last_error}"
+                f"The model worker stopped unexpectedly, even after a retry "
+                f"({type(last_error).__name__}: {last_error})"
             ) from last_error
 
     def _transcribe_once(self, audio: np.ndarray) -> str:

@@ -155,6 +155,8 @@ The persisted configuration is `~/Library/Application Support/STT Local/config.j
 - **No sound or recording:** Verify Microphone permission and the current macOS default input device.
 - **Microphone opening times out:** A CoreAudio device refresh can stall after a stuck audio stream. STT Local automatically restarts once the current dictation workflow returns to idle; the next recording may need to reload the model.
 - **Text copies but does not paste:** Grant Accessibility permission to `.venv/bin/python`.
+- **Nothing is copied or pasted after transcribing:** Look for an STT Local notification or a warning triangle in the menu bar; the menu shows the last error until the next dictation. Errors are also written to `/tmp/stt-local.stderr.log`.
+- **Model download fails on a work network:** The model is downloaded over HTTPS, which STT Local verifies against the macOS keychain. Behind a TLS-inspecting proxy such as Zscaler, its root certificate must be trusted there. This is usually already done on managed Macs; otherwise run `security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db /path/to/root-certificate.crt`, then dictate again.
 - **First transcription is slow:** The model may still be downloading or warming. Later recordings reuse the resident worker.
 - **Processor is not listed:** Use Reload and confirm the file ends in `.py` and does not begin with `_`.
 - **Model RAM remains allocated:** Wait 10 idle minutes or quit STT Local; the dedicated model process then exits.

@@ -188,7 +188,7 @@ def test_first_connection_failure_restarts_once():
 def test_second_connection_failure_raises_transcription_error():
     manager, context, _ = make_manager([[EOFError()], [EOFError()]])
 
-    with pytest.raises(TranscriptionError, match="failed after retry"):
+    with pytest.raises(TranscriptionError, match="stopped unexpectedly, even after a retry"):
         manager.transcribe(np.ones(2, dtype=np.float32))
 
     assert len(context.processes) == 2
@@ -254,3 +254,60 @@ def test_transcription_options_include_prompt_only_when_set():
     assert "initial_prompt" not in model_worker.transcription_options(
         "model", "en", "   "
     )
+
+
+def _chained(outer: Exception, inner: BaseException) -> Exception:
+    try:
+        try:
+            raise inner
+        except BaseException as exc:
+            raise outer from exc
+    except Exception as exc:
+        return exc
+
+
+def test_load_error_explains_untrusted_certificate():
+    import ssl
+
+    exc = _chained(
+        RuntimeError("download failed"),
+        ssl.SSLCertVerificationError(1, "[SSL: CERTIFICATE_VERIFY_FAILED] self-signed"),
+    )
+
+    message = model_worker.describe_load_error(exc, "org/model")
+
+    assert "org/model" in message
+    assert "certificate is not trusted" in message
+    assert "Zscaler" in message
+
+
+def test_load_error_explains_network_failure():
+    class ConnectError(Exception):
+        pass
+
+    exc = _chained(RuntimeError("wrapped"), ConnectError("unreachable"))
+
+    message = model_worker.describe_load_error(exc, "org/model")
+
+    assert message.startswith("Couldn't download the Whisper model org/model.")
+    assert "RuntimeError: wrapped" in message
+
+
+def test_load_error_falls_back_to_exception_text():
+    message = model_worker.describe_load_error(ValueError("bad weights"), "org/model")
+
+    assert message == "Couldn't load the Whisper model org/model. (ValueError: bad weights)"
+
+
+def test_worker_error_message_is_not_double_prefixed():
+    manager, _, _ = make_manager(
+        [
+            [{"type": "error", "error": "Couldn't download"}],
+            [{"type": "error", "error": "Couldn't download"}],
+        ]
+    )
+
+    with pytest.raises(TranscriptionError) as raised:
+        manager.transcribe(np.ones(2, dtype=np.float32))
+
+    assert str(raised.value) == "Couldn't download"

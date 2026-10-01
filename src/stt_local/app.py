@@ -4,6 +4,7 @@ import os
 import sys
 from typing import Any
 
+from .alerts import menu_error_title, report_error
 from .audio import AudioRecorder
 from .config import ConfigStore
 from .constants import POLL_INTERVAL_SECONDS, PROCESSORS_DIR
@@ -42,6 +43,14 @@ def status_symbol_name(state: DictationState) -> str:
         DictationState.TRANSCRIBING: "ellipsis.circle",
         DictationState.ERROR: "exclamationmark.triangle",
     }[state]
+
+
+def status_display(state: DictationState, error: str | None) -> tuple[str, str]:
+    """Symbol and menu text; a reported error stays visible until the next
+    dictation starts, because notifications can be missed or disabled."""
+    if error is not None and state in {DictationState.IDLE, DictationState.ERROR}:
+        return status_symbol_name(DictationState.ERROR), error
+    return status_symbol_name(state), status_presentation(state)[1]
 
 
 def make_status_icon(symbol_name: str) -> Any:
@@ -118,15 +127,20 @@ if rumps is not None:
             self.monitor = monitor
             self.overlay = overlay
             self.status_item = rumps.MenuItem("Idle")
+            self._state = DictationState.IDLE
+            self._error: str | None = None
             self._rebuild_menu()
             self._timer = rumps.Timer(self._tick, POLL_INTERVAL_SECONDS)
             self._timer.start()
             try:
                 self.monitor.start()
             except Exception as exc:
-                rumps.notification(
-                    "Keyboard monitoring unavailable", "STT Local", str(exc)
-                )
+                self.show_error("Keyboard monitoring unavailable", str(exc))
+
+        def show_error(self, title: str, message: str) -> None:
+            report_error(title, message)
+            self._error = menu_error_title(title, message)
+            self._render_status()
 
         def _rebuild_menu(self) -> None:
             processor_heading = rumps.MenuItem("Processor")
@@ -144,16 +158,22 @@ if rumps is not None:
             ]
 
         def update_status(self, state: DictationState) -> None:
-            title, status = status_presentation(state)
-            self.title = title
-            self._icon_nsimage = make_status_icon(status_symbol_name(state))
+            if state not in {DictationState.IDLE, DictationState.ERROR}:
+                self._error = None
+            self._state = state
+            self._render_status()
+            if self.overlay is not None:
+                self.overlay.set_state(state)
+
+        def _render_status(self) -> None:
+            symbol, status = status_display(self._state, self._error)
+            self.title = status_presentation(self._state)[0]
+            self._icon_nsimage = make_status_icon(symbol)
             try:
                 self._nsapp.setStatusBarIcon()
             except AttributeError:
                 pass
             self.status_item.title = status
-            if self.overlay is not None:
-                self.overlay.set_state(state)
 
         def _tick(self, _timer: Any) -> None:
             self.coordinator.refresh()
@@ -190,8 +210,13 @@ def build_app() -> Any:
         os.environ.get("STT_LOCAL_IDLE_SECONDS", configured_idle)
     )
 
+    app: Any = None
+
     def notify(title: str, message: str) -> None:
-        rumps.notification(title, "STT Local", message)
+        if app is None:
+            report_error(title, message)
+        else:
+            app.show_error(title, message)
 
     settings = SettingsWindowController(settings_model, notify)
     recorder = AudioRecorder()

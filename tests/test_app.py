@@ -73,3 +73,17 @@ def test_processor_menu_lists_choices_and_persists_selection(tmp_path):
     assert store.load().selected_processor == "casual_discord"
     assert rebuilt == [True]
     assert [item.state for item in menu.build_items()] == [0, 1]
+
+
+def test_reported_error_stays_visible_until_next_dictation():
+    error = "Transcription failed: no model"
+
+    assert app.status_display(DictationState.IDLE, error) == (
+        "exclamationmark.triangle",
+        error,
+    )
+    assert app.status_display(DictationState.RECORDING_LOADING, error) == (
+        "waveform",
+        "Recording · Loading Model",
+    )
+    assert app.status_display(DictationState.IDLE, None) == ("mic.fill", "Idle")
