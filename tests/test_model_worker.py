@@ -15,6 +15,11 @@ class FakeEvent:
         return self.value
 
 
+class FakeValue:
+    def __init__(self, value):
+        self.value = value
+
+
 class FakeConnection:
     def __init__(self, responses):
         self.responses = list(responses)
@@ -65,6 +70,7 @@ class FakeContext:
         self.parent_connections = []
         self.processes = []
         self.events = []
+        self.values = []
 
     def Pipe(self):
         parent = FakeConnection(self.response_batches.pop(0))
@@ -76,6 +82,11 @@ class FakeContext:
         event = FakeEvent()
         self.events.append(event)
         return event
+
+    def Value(self, _typecode, initial):
+        value = FakeValue(initial)
+        self.values.append(value)
+        return value
 
     def Process(self, **_kwargs):
         process = FakeProcess()
@@ -311,3 +322,84 @@ def test_worker_error_message_is_not_double_prefixed():
         manager.transcribe(np.ones(2, dtype=np.float32))
 
     assert str(raised.value) == "Couldn't download"
+
+
+def test_download_progress_reports_only_while_downloading():
+    manager, context, _ = make_manager()
+    assert manager.download_progress is None
+
+    manager.ensure_started()
+    assert manager.download_progress is None
+
+    context.values[0].value = 0.25
+    assert manager.download_progress == 0.25
+
+    context.values[0].value = model_worker.NOT_DOWNLOADING
+    assert manager.download_progress is None
+
+    context.values[0].value = 0.5
+    context.processes[0].alive = False
+    assert manager.download_progress is None
+
+
+def test_download_model_reports_written_bytes_then_clears(monkeypatch):
+    import huggingface_hub
+
+    reports = []
+
+    def fake_snapshot_download(repo_id, tqdm_class):
+        assert repo_id == "org/model"
+        files = tqdm_class(total=2, unit="it", desc="Fetching 2 files", disable=True)
+        files.update(1)
+        written = tqdm_class(
+            total=0, unit="B", desc="Reconstructing (incomplete total...)", disable=True
+        )
+        written.total = 100
+        written.update(100)
+        written.total = 2_000_000
+        written.update(400_000)
+        written.update(1_600_000)
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", fake_snapshot_download)
+
+    model_worker.download_model("org/model", reports.append)
+
+    assert reports == [400_100 / 2_000_000, 1.0, model_worker.NOT_DOWNLOADING]
+
+
+def test_download_model_clears_progress_after_failure(monkeypatch):
+    import huggingface_hub
+
+    reports = []
+
+    def failing_snapshot_download(**_kwargs):
+        raise OSError("offline")
+
+    monkeypatch.setattr(
+        huggingface_hub, "snapshot_download", failing_snapshot_download
+    )
+
+    with pytest.raises(OSError):
+        model_worker.download_model("org/model", reports.append)
+
+    assert reports == [model_worker.NOT_DOWNLOADING]
+
+
+def test_idle_timeout_is_read_when_scheduled():
+    seconds = [30.0]
+    manager, _, timers = make_manager(idle_seconds=lambda: seconds[0])
+
+    manager.schedule_idle_shutdown()
+    seconds[0] = 90.0
+    manager.reschedule_idle_shutdown()
+
+    assert [timer.interval for timer in timers] == [30.0, 90.0]
+    assert timers[0].cancelled
+
+
+def test_reschedule_does_nothing_without_pending_countdown():
+    manager, _, timers = make_manager()
+
+    manager.reschedule_idle_shutdown()
+
+    assert timers == []

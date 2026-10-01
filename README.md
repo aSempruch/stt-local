@@ -46,7 +46,7 @@ If Right Command does nothing or Command-V is not synthesized, Accessibility per
 2. Tap and release **Right Command**, then speak. Approve Microphone access if prompted; if recording did not start, tap again after granting access.
 3. Tap and release **Right Command** again to stop. Wait for the transcript to appear in the focused app.
 
-The first recording downloads and warms `mlx-community/whisper-large-v3-turbo`, so it takes longer. Model loading begins immediately after microphone capture starts. The worker remains available for follow-up dictation and exits after 10 idle minutes so macOS can reclaim all model and Metal memory.
+The first recording downloads (about 1.6 GB) and warms `mlx-community/whisper-large-v3-turbo`, so it takes longer: a notification announces the download and the floating pill shows its progress instead of the waveform. Model loading begins immediately after microphone capture starts. The worker remains available for follow-up dictation and exits after 10 idle minutes so macOS can reclaim all model and Metal memory; change the delay with **Unload model after** in **Settings…**.
 
 See [Troubleshooting](#troubleshooting) if recording or pasting does not work.
 
@@ -148,7 +148,7 @@ For idle-unload testing only, override the configured timeout when launching dir
 STT_LOCAL_IDLE_SECONDS=10 uv run stt-local
 ```
 
-The persisted configuration is `~/Library/Application Support/STT Local/config.json`. The default timeout is 600 seconds. The model, language (`en`), sample rate (16 kHz), and command path are fixed application constants.
+The persisted configuration is `~/Library/Application Support/STT Local/config.json`. The default unload timeout is 600 seconds, set from Settings as `idle_unload_seconds`. The model, language (`en`), sample rate (16 kHz), and command path are fixed application constants.
 
 ## Troubleshooting
 
@@ -159,7 +159,7 @@ The persisted configuration is `~/Library/Application Support/STT Local/config.j
 - **Model download fails on a work network:** The model is downloaded over HTTPS, which STT Local verifies against the macOS keychain. Behind a TLS-inspecting proxy such as Zscaler, its root certificate must be trusted there. This is usually already done on managed Macs; otherwise run `security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db /path/to/root-certificate.crt`, then dictate again.
 - **First transcription is slow:** The model may still be downloading or warming. Later recordings reuse the resident worker.
 - **Processor is not listed:** Use Reload and confirm the file ends in `.py` and does not begin with `_`.
-- **Model RAM remains allocated:** Wait 10 idle minutes or quit STT Local; the dedicated model process then exits.
+- **Model RAM remains allocated:** Wait for the unload delay set in Settings (10 minutes by default) or quit STT Local; the dedicated model process then exits.
 
 ## License
 

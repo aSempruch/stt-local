@@ -25,6 +25,21 @@ def menu_error_title(title: str, message: str, limit: int = 120) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
+def post_notification(
+    title: str, message: str, *, popen: Callable[..., Any] = subprocess.Popen
+) -> None:
+    """Show a macOS notification without waiting for it; never raises."""
+    try:
+        popen(
+            notification_command(title, message),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        pass
+
+
 def report_error(
     title: str,
     message: str,
@@ -38,12 +53,4 @@ def report_error(
         print(f"STT Local error: {title}: {message}", file=stream, flush=True)
     except Exception:
         pass
-    try:
-        popen(
-            notification_command(title, message),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except Exception:
-        pass
+    post_notification(title, message, popen=popen)

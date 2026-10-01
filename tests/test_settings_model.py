@@ -119,3 +119,32 @@ def test_bring_to_front_keeps_existing_policy_and_falls_back_on_old_macos():
     bring_to_front(application, Mock())
 
     assert application.calls == [("activateIgnoringOtherApps", True)]
+
+
+def test_idle_unload_delay_validates_and_persists(tmp_path):
+    model, store, _ = make_model(tmp_path)
+
+    model.set_idle_unload_seconds(1800)
+
+    assert model.idle_unload_seconds == 1800
+    assert store.load().idle_unload_seconds == 1800
+    with pytest.raises(ValueError, match="positive"):
+        model.set_idle_unload_seconds(0)
+
+
+def test_idle_unload_options_label_presets_and_keep_custom_value():
+    from stt_local.settings import idle_unload_options
+
+    options = idle_unload_options(600)
+    assert options == [
+        (60.0, "1 minute"),
+        (300.0, "5 minutes"),
+        (600.0, "10 minutes"),
+        (1800.0, "30 minutes"),
+        (3600.0, "1 hour"),
+        (14400.0, "4 hours"),
+    ]
+
+    custom = idle_unload_options(25)
+    assert custom[0] == (25.0, "25 seconds")
+    assert len(custom) == 7

@@ -92,15 +92,58 @@ def describe_load_error(exc: BaseException, model_name: str) -> str:
     return f"Couldn't load the Whisper model {model_name}. ({details})"
 
 
+NOT_DOWNLOADING = -1.0
+MIN_REPORTED_DOWNLOAD_BYTES = 1_000_000
+
+
+def download_model(model_name: str, report: Callable[[float], None]) -> None:
+    """Fetch the model into the Hugging Face cache, reporting the fraction of
+    bytes written so far. A cached model returns without reporting."""
+    from huggingface_hub import snapshot_download
+    from huggingface_hub.utils import tqdm as hf_tqdm
+
+    class Progress(hf_tqdm):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            # snapshot_download aggregates every file's written bytes into
+            # its "Reconstructing" bar; the other bars count files or the
+            # network transfer.
+            self._tracks = kwargs.get("unit") == "B" and str(
+                kwargs.get("desc", "")
+            ).startswith("Reconstructing")
+            self._written = 0.0
+            super().__init__(*args, **kwargs)
+
+        def update(self, n: float | None = 1) -> Any:
+            if self._tracks and n:
+                self._written += n
+                total = self.total or 0
+                # Small files such as config.json can finish before the
+                # weights register their size, which would flash a full bar.
+                if total >= MIN_REPORTED_DOWNLOAD_BYTES:
+                    report(min(1.0, self._written / total))
+            return super().update(n)
+
+    try:
+        snapshot_download(repo_id=model_name, tqdm_class=Progress)
+    finally:
+        report(NOT_DOWNLOADING)
+
+
 def _worker_main(
     connection: Connection,
     ready_event: Any,
     model_name: str,
     language: str,
     sample_rate: int,
+    progress: Any | None = None,
 ) -> None:
+    def report(fraction: float) -> None:
+        if progress is not None:
+            progress.value = fraction
+
     try:
         use_system_certificates()
+        download_model(model_name, report)
         import mlx_whisper
 
         mlx_whisper.transcribe(
@@ -151,7 +194,7 @@ class WorkerManager:
         model_name: str = MODEL,
         language: str = LANGUAGE,
         sample_rate: int = SAMPLE_RATE,
-        idle_seconds: float = DEFAULT_IDLE_UNLOAD_SECONDS,
+        idle_seconds: float | Callable[[], float] = DEFAULT_IDLE_UNLOAD_SECONDS,
         prompt: Callable[[], str] = lambda: "",
         context: Any | None = None,
         timer_factory: Callable[[float, Callable[[], None]], Any] = threading.Timer,
@@ -159,7 +202,9 @@ class WorkerManager:
         self.model_name = model_name
         self.language = language
         self.sample_rate = sample_rate
-        self.idle_seconds = idle_seconds
+        self._idle_seconds = (
+            idle_seconds if callable(idle_seconds) else lambda: idle_seconds
+        )
         self.prompt = prompt
         self._context = context or multiprocessing.get_context("spawn")
         self._timer_factory = timer_factory
@@ -168,8 +213,13 @@ class WorkerManager:
         self._process: Any | None = None
         self._connection: Any | None = None
         self._ready_event: Any | None = None
+        self._progress: Any | None = None
         self._idle_timer: Any | None = None
         self._generation = 0
+
+    @property
+    def idle_seconds(self) -> float:
+        return float(self._idle_seconds())
 
     @property
     def is_running(self) -> bool:
@@ -194,6 +244,7 @@ class WorkerManager:
             self._close_stale_handles_locked()
             parent_connection, child_connection = self._context.Pipe()
             ready_event = self._context.Event()
+            progress = self._context.Value("d", NOT_DOWNLOADING)
             process = self._context.Process(
                 target=_worker_main,
                 args=(
@@ -202,6 +253,7 @@ class WorkerManager:
                     self.model_name,
                     self.language,
                     self.sample_rate,
+                    progress,
                 ),
                 daemon=True,
                 name="stt-local-whisper",
@@ -212,7 +264,19 @@ class WorkerManager:
                 close_child()
             self._connection = parent_connection
             self._ready_event = ready_event
+            self._progress = progress
             self._process = process
+
+    @property
+    def download_progress(self) -> float | None:
+        """Fraction of the model downloaded, or None when not downloading."""
+        with self._state_lock:
+            progress = self._progress
+            alive = self._process is not None and self._process.is_alive()
+        if progress is None or not alive:
+            return None
+        value = float(progress.value)
+        return value if value >= 0 else None
 
     def transcribe(self, audio: np.ndarray) -> str:
         with self._request_lock:
@@ -270,6 +334,13 @@ class WorkerManager:
             self._idle_timer = timer
         timer.start()
 
+    def reschedule_idle_shutdown(self) -> None:
+        """Restart a pending idle countdown so a changed timeout applies now."""
+        with self._state_lock:
+            pending = self._idle_timer is not None
+        if pending:
+            self.schedule_idle_shutdown()
+
     def cancel_idle_shutdown(self) -> None:
         with self._state_lock:
             timer = self._idle_timer
@@ -295,6 +366,7 @@ class WorkerManager:
             self._process = None
             self._connection = None
             self._ready_event = None
+            self._progress = None
         if connection is not None and not force:
             try:
                 if process is not None and process.is_alive():
@@ -317,3 +389,4 @@ class WorkerManager:
         self._process = None
         self._connection = None
         self._ready_event = None
+        self._progress = None

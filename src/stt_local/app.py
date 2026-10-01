@@ -4,7 +4,7 @@ import os
 import sys
 from typing import Any
 
-from .alerts import menu_error_title, report_error
+from .alerts import menu_error_title, post_notification, report_error
 from .audio import AudioRecorder
 from .config import ConfigStore
 from .constants import POLL_INTERVAL_SECONDS, PROCESSORS_DIR
@@ -129,6 +129,7 @@ if rumps is not None:
             self.status_item = rumps.MenuItem("Idle")
             self._state = DictationState.IDLE
             self._error: str | None = None
+            self._announced_download = False
             self._rebuild_menu()
             self._timer = rumps.Timer(self._tick, POLL_INTERVAL_SECONDS)
             self._timer.start()
@@ -177,9 +178,24 @@ if rumps is not None:
 
         def _tick(self, _timer: Any) -> None:
             self.coordinator.refresh()
+            self._show_download_progress()
             # A timed-out CoreAudio call can leave PortAudio locked in this
             # process. Replace it once transcription is finished.
             restart_if_audio_unusable(self.coordinator)
+
+        def _show_download_progress(self) -> None:
+            progress = self.coordinator.worker.download_progress
+            if self.overlay is not None:
+                self.overlay.set_download_progress(progress)
+            if progress is None:
+                self._announced_download = False
+            elif not self._announced_download:
+                self._announced_download = True
+                post_notification(
+                    "Downloading the speech model",
+                    "This happens once and can take a few minutes. Your "
+                    "dictation will be transcribed when it finishes.",
+                )
 
         def _show_settings(self, _sender: Any) -> None:
             self.settings_controller.show()
@@ -205,10 +221,12 @@ def build_app() -> Any:
     registry = ProcessorRegistry(PROCESSORS_DIR)
     settings_model = SettingsModel(store=store, registry=registry)
     settings_model.refresh()
-    configured_idle = store.load().idle_unload_seconds
-    idle_seconds = float(
-        os.environ.get("STT_LOCAL_IDLE_SECONDS", configured_idle)
-    )
+    idle_override = os.environ.get("STT_LOCAL_IDLE_SECONDS")
+
+    def idle_seconds() -> float:
+        if idle_override:
+            return float(idle_override)
+        return settings_model.idle_unload_seconds
 
     app: Any = None
 
@@ -218,14 +236,19 @@ def build_app() -> Any:
         else:
             app.show_error(title, message)
 
-    settings = SettingsWindowController(settings_model, notify)
+    worker = WorkerManager(
+        idle_seconds=idle_seconds,
+        prompt=lambda: settings_model.bias_prompt,
+    )
+    settings = SettingsWindowController(
+        settings_model,
+        notify,
+        on_idle_unload_change=worker.reschedule_idle_shutdown,
+    )
     recorder = AudioRecorder()
     coordinator = DictationCoordinator(
         recorder=recorder,
-        worker=WorkerManager(
-            idle_seconds=idle_seconds,
-            prompt=lambda: settings_model.bias_prompt,
-        ),
+        worker=worker,
         processors=registry,
         output=MacOutput(on_main=call_on_main_thread),
         sounds=MacSounds(),

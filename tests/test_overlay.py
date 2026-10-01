@@ -66,3 +66,18 @@ def test_adaptive_ceiling_follows_recent_peak_within_bounds():
     assert overlay.adaptive_ceiling([rms(-58)]) == overlay.MIN_CEILING_DB
     assert overlay.adaptive_ceiling([rms(-3)]) == overlay.MAX_CEILING_DB
     assert overlay.adaptive_ceiling([]) == overlay.MIN_CEILING_DB
+
+
+def test_progress_fill_width_is_bounded_and_never_empty():
+    assert overlay.progress_fill_width(0.0, 100) == overlay.TRACK_HEIGHT
+    assert overlay.progress_fill_width(0.5, 100) == 50
+    assert overlay.progress_fill_width(2.0, 100) == 100
+
+
+def test_download_progress_replaces_waveform_while_set():
+    pill = overlay.DictationOverlay(lambda _count: [])
+
+    pill.set_download_progress(0.4)
+    assert pill._download_progress == 0.4
+    pill.set_download_progress(None)
+    assert pill._download_progress is None

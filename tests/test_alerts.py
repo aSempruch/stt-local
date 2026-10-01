@@ -1,7 +1,12 @@
 import io
 import subprocess
 
-from stt_local.alerts import menu_error_title, notification_command, report_error
+from stt_local.alerts import (
+    menu_error_title,
+    notification_command,
+    post_notification,
+    report_error,
+)
 
 
 def test_notification_passes_text_as_arguments_not_script():
@@ -42,3 +47,11 @@ def test_menu_error_title_is_single_line_and_bounded():
     assert title.startswith("Transcription failed: line one line two")
     assert len(title) == 120
     assert title.endswith("…")
+
+
+def test_post_notification_does_not_log():
+    calls = []
+
+    post_notification("Downloading", "once", popen=lambda *args, **_kw: calls.append(args))
+
+    assert calls == [(notification_command("Downloading", "once"),)]

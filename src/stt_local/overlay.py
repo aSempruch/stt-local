@@ -16,7 +16,9 @@ DOT_GAP = 10.0
 PADDING = 14.0
 HEIGHT = 36.0
 VERTICAL_PADDING = 9.0
-WIDTH = PADDING * 2 + DOT_SIZE + DOT_GAP + BARS * BAR_WIDTH + (BARS - 1) * BAR_GAP
+TRACK_WIDTH = BARS * BAR_WIDTH + (BARS - 1) * BAR_GAP
+TRACK_HEIGHT = 6.0
+WIDTH = PADDING * 2 + DOT_SIZE + DOT_GAP + TRACK_WIDTH
 BOTTOM_MARGIN = 24.0
 FRAME_INTERVAL = 1 / 30
 FLOOR_DB = -55.0
@@ -65,6 +67,13 @@ def transcribing_heights(seconds: float, bars: int = BARS) -> list[float]:
     ]
 
 
+def progress_fill_width(progress: float, track_width: float = TRACK_WIDTH) -> float:
+    """Width of the filled part of the download bar; never fully empty, so
+    the bar reads as started."""
+    fraction = min(1.0, max(0.0, progress))
+    return max(TRACK_HEIGHT, fraction * track_width)
+
+
 def panel_frame(
     visible: tuple[float, float, float, float], size: tuple[float, float]
 ) -> tuple[float, float, float, float]:
@@ -86,6 +95,7 @@ class DictationOverlay:
         self._levels = levels
         self._clock = clock
         self._mode: str | None = None
+        self._download_progress: float | None = None
         self._panel: Any | None = None
         self._view: Any | None = None
         self._timer: Any | None = None
@@ -99,6 +109,10 @@ class DictationOverlay:
             self._hide()
         else:
             self._show()
+
+    def set_download_progress(self, progress: float | None) -> None:
+        """While the model downloads, a progress bar replaces the waveform."""
+        self._download_progress = progress
 
     def close(self) -> None:
         self._mode = None
@@ -132,6 +146,7 @@ class DictationOverlay:
         mode = self._mode
         if mode is None or self._view is None:
             return
+        self._view.progress = self._download_progress
         if mode == "transcribing":
             heights = transcribing_heights(self._clock())
         else:
@@ -174,6 +189,7 @@ class DictationOverlay:
         )
         view.mode = "recording"
         view.heights = [0.0] * BARS
+        view.progress = None
         panel.setContentView_(view)
         self._panel = panel
         self._view = view
@@ -239,9 +255,13 @@ def _draw(view: Any) -> None:
         AppKit.NSMakeRect(PADDING, (height - DOT_SIZE) / 2, DOT_SIZE, DOT_SIZE)
     ).fill()
 
+    x = PADDING + DOT_SIZE + DOT_GAP
+    if view.progress is not None:
+        _draw_progress(x, height, view.progress)
+        return
+
     AppKit.NSColor.colorWithWhite_alpha_(1.0, bar_alpha).setFill()
     usable = height - 2 * VERTICAL_PADDING - MIN_BAR
-    x = PADDING + DOT_SIZE + DOT_GAP
     for value in view.heights:
         bar_height = MIN_BAR + value * usable
         rect = AppKit.NSMakeRect(x, (height - bar_height) / 2, BAR_WIDTH, bar_height)
@@ -249,3 +269,20 @@ def _draw(view: Any) -> None:
             rect, BAR_WIDTH / 2, BAR_WIDTH / 2
         ).fill()
         x += BAR_WIDTH + BAR_GAP
+
+
+def _draw_progress(x: float, height: float, progress: float) -> None:
+    import AppKit
+
+    y = (height - TRACK_HEIGHT) / 2
+    radius = TRACK_HEIGHT / 2
+    AppKit.NSColor.colorWithWhite_alpha_(1.0, 0.18).setFill()
+    AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+        AppKit.NSMakeRect(x, y, TRACK_WIDTH, TRACK_HEIGHT), radius, radius
+    ).fill()
+    AppKit.NSColor.colorWithWhite_alpha_(1.0, 0.9).setFill()
+    AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+        AppKit.NSMakeRect(x, y, progress_fill_width(progress), TRACK_HEIGHT),
+        radius,
+        radius,
+    ).fill()

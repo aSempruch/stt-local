@@ -7,6 +7,26 @@ from .config import AppConfig, ConfigStore
 from .processors import ProcessorInfo, ProcessorRegistry
 
 
+IDLE_UNLOAD_CHOICES = (60.0, 300.0, 600.0, 1800.0, 3600.0, 14400.0)
+
+
+def idle_unload_label(seconds: float) -> str:
+    minutes = seconds / 60
+    if minutes >= 60 and minutes % 60 == 0:
+        hours = int(minutes // 60)
+        return f"{hours} hour" if hours == 1 else f"{hours} hours"
+    if minutes == int(minutes):
+        minutes = int(minutes)
+        return f"{minutes} minute" if minutes == 1 else f"{minutes} minutes"
+    return f"{int(seconds)} seconds"
+
+
+def idle_unload_options(current: float) -> list[tuple[float, str]]:
+    """Preset timeouts, plus a hand-edited config value so it stays visible."""
+    choices = sorted({*IDLE_UNLOAD_CHOICES, float(current)})
+    return [(seconds, idle_unload_label(seconds)) for seconds in choices]
+
+
 def bring_to_front(application: Any, window: Any) -> None:
     """Show a window above other apps' windows and give it keyboard focus."""
     import AppKit
@@ -39,6 +59,19 @@ class SettingsModel:
     @property
     def bias_prompt(self) -> str:
         return self.config.bias_prompt
+
+    @property
+    def idle_unload_seconds(self) -> float:
+        return self.config.idle_unload_seconds
+
+    def set_idle_unload_seconds(self, seconds: float) -> None:
+        seconds = float(seconds)
+        if seconds <= 0:
+            raise ValueError("The unload delay must be positive")
+        if seconds == self.config.idle_unload_seconds:
+            return
+        self.config = replace(self.config, idle_unload_seconds=seconds)
+        self.store.save(self.config)
 
     def set_bias_prompt(self, text: str) -> None:
         text = text.strip()
@@ -76,9 +109,11 @@ class SettingsWindowController:
         self,
         model: SettingsModel,
         notify: Any,
+        on_idle_unload_change: Any = lambda: None,
     ) -> None:
         self.model = model
         self.notify = notify
+        self.on_idle_unload_change = on_idle_unload_change
         self._controller: Any | None = None
 
     def show(self) -> None:
@@ -110,6 +145,26 @@ class SettingsWindowController:
                     if processor.key == outer.model.selected_processor:
                         selected_index = index
                 self.popup.selectItemAtIndex_(selected_index)
+
+                current = outer.model.idle_unload_seconds
+                self.idle_popup.removeAllItems()
+                for index, (seconds, label) in enumerate(
+                    idle_unload_options(current)
+                ):
+                    self.idle_popup.addItemWithTitle_(label)
+                    self.idle_popup.lastItem().setRepresentedObject_(seconds)
+                    if seconds == current:
+                        self.idle_popup.selectItemAtIndex_(index)
+
+            @objc.IBAction
+            def selectIdleUnload_(self, sender):
+                seconds = float(sender.selectedItem().representedObject())
+                try:
+                    outer.model.set_idle_unload_seconds(seconds)
+                    outer.on_idle_unload_change()
+                except Exception as exc:
+                    outer.notify("Unload delay save failed", str(exc))
+                self.refreshUI()
 
             @objc.IBAction
             def selectProcessor_(self, sender):
@@ -175,7 +230,7 @@ class SettingsWindowController:
             | AppKit.NSWindowStyleMaskMiniaturizable
         )
         window = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-            Foundation.NSMakeRect(0, 0, 480, 395),
+            Foundation.NSMakeRect(0, 0, 480, 465),
             style,
             AppKit.NSBackingStoreBuffered,
             False,
@@ -185,6 +240,27 @@ class SettingsWindowController:
         controller = Controller.alloc().initWithWindow_(window)
         window.setDelegate_(controller)
         content = window.contentView()
+
+        idle_label = AppKit.NSTextField.labelWithString_("Unload model after")
+        idle_label.setFrame_(Foundation.NSMakeRect(24, 415, 150, 24))
+        content.addSubview_(idle_label)
+
+        idle_popup = AppKit.NSPopUpButton.alloc().initWithFrame_pullsDown_(
+            Foundation.NSMakeRect(165, 413, 285, 28), False
+        )
+        idle_popup.setTarget_(controller)
+        idle_popup.setAction_("selectIdleUnload:")
+        content.addSubview_(idle_popup)
+        controller.idle_popup = idle_popup
+
+        idle_hint = AppKit.NSTextField.wrappingLabelWithString_(
+            "Idle time before the model leaves memory. The next dictation "
+            "reloads it, which takes a few seconds."
+        )
+        idle_hint.setFont_(AppKit.NSFont.systemFontOfSize_(11))
+        idle_hint.setTextColor_(AppKit.NSColor.secondaryLabelColor())
+        idle_hint.setFrame_(Foundation.NSMakeRect(24, 375, 426, 32))
+        content.addSubview_(idle_hint)
 
         bias_label = AppKit.NSTextField.labelWithString_("Bias prompt")
         bias_label.setFrame_(Foundation.NSMakeRect(24, 345, 150, 24))
