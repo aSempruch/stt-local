@@ -189,7 +189,10 @@ def build_app() -> Any:
     settings = SettingsWindowController(settings_model, notify)
     coordinator = DictationCoordinator(
         recorder=AudioRecorder(),
-        worker=WorkerManager(idle_seconds=idle_seconds),
+        worker=WorkerManager(
+            idle_seconds=idle_seconds,
+            prompt=lambda: settings_model.bias_prompt,
+        ),
         processors=registry,
         output=MacOutput(),
         sounds=MacSounds(),

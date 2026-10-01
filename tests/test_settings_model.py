@@ -57,3 +57,13 @@ def test_create_selects_new_processor(tmp_path):
     assert created.key == "markdown_cleanup"
     assert model.selected_processor == "markdown_cleanup"
     assert store.load().selected_processor == "markdown_cleanup"
+
+
+def test_set_bias_prompt_strips_and_persists(tmp_path):
+    model, store, _ = make_model(tmp_path)
+
+    model.set_bias_prompt("  Komodo, Hermes \n")
+
+    assert model.bias_prompt == "Komodo, Hermes"
+    assert store.load().bias_prompt == "Komodo, Hermes"
+    assert store.load().idle_unload_seconds == 25

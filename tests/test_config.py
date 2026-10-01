@@ -31,3 +31,31 @@ def test_save_is_round_trippable_and_leaves_no_temporary_file(tmp_path):
 
     assert store.load() == expected
     assert not (tmp_path / "config.json.tmp").exists()
+
+
+def test_bias_prompt_round_trips(tmp_path):
+    store = ConfigStore(tmp_path)
+    expected = AppConfig(bias_prompt="Komodo, Hermes, Claub")
+
+    store.save(expected)
+
+    assert store.load() == expected
+
+
+def test_config_without_bias_prompt_keeps_other_values(tmp_path):
+    (tmp_path / "config.json").write_text(
+        '{"selected_processor": "casual_discord", "idle_unload_seconds": 30}'
+    )
+
+    assert ConfigStore(tmp_path).load() == AppConfig(
+        selected_processor="casual_discord", idle_unload_seconds=30.0
+    )
+
+
+def test_invalid_bias_prompt_returns_defaults(tmp_path):
+    (tmp_path / "config.json").write_text(
+        '{"selected_processor": "plain_text", "idle_unload_seconds": 30,'
+        ' "bias_prompt": 7}'
+    )
+
+    assert ConfigStore(tmp_path).load() == AppConfig()

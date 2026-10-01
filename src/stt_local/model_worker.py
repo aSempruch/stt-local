@@ -25,6 +25,23 @@ class TranscriptionCancelled(TranscriptionError):
     pass
 
 
+def transcription_options(
+    model_name: str, language: str, prompt: str = ""
+) -> dict[str, Any]:
+    options: dict[str, Any] = {
+        "path_or_hf_repo": model_name,
+        "language": language,
+        "condition_on_previous_text": False,
+        "verbose": None,
+    }
+    prompt = prompt.strip()
+    if prompt:
+        # Whisper treats this as preceding context, which biases spelling and
+        # vocabulary. It only conditions the first 30-second window.
+        options["initial_prompt"] = prompt
+    return options
+
+
 def _worker_main(
     connection: Connection,
     ready_event: Any,
@@ -35,14 +52,9 @@ def _worker_main(
     try:
         import mlx_whisper
 
-        options = {
-            "path_or_hf_repo": model_name,
-            "language": language,
-            "condition_on_previous_text": False,
-            "verbose": None,
-        }
         mlx_whisper.transcribe(
-            np.zeros(sample_rate // 10, dtype=np.float32), **options
+            np.zeros(sample_rate // 10, dtype=np.float32),
+            **transcription_options(model_name, language),
         )
         ready_event.set()
         connection.send({"type": "ready"})
@@ -67,6 +79,9 @@ def _worker_main(
         try:
             audio = np.asarray(message["audio"], dtype=np.float32).reshape(-1)
             audio = trim_trailing_silence(audio, sample_rate)
+            options = transcription_options(
+                model_name, language, message.get("prompt", "")
+            )
             result = mlx_whisper.transcribe(audio, **options)
             connection.send({"type": "result", "text": result["text"].strip()})
         except Exception as exc:
@@ -84,6 +99,7 @@ class WorkerManager:
         language: str = LANGUAGE,
         sample_rate: int = SAMPLE_RATE,
         idle_seconds: float = DEFAULT_IDLE_UNLOAD_SECONDS,
+        prompt: Callable[[], str] = lambda: "",
         context: Any | None = None,
         timer_factory: Callable[[float, Callable[[], None]], Any] = threading.Timer,
     ) -> None:
@@ -91,6 +107,7 @@ class WorkerManager:
         self.language = language
         self.sample_rate = sample_rate
         self.idle_seconds = idle_seconds
+        self.prompt = prompt
         self._context = context or multiprocessing.get_context("spawn")
         self._timer_factory = timer_factory
         self._state_lock = threading.RLock()
@@ -171,7 +188,11 @@ class WorkerManager:
         if connection is None:
             raise TranscriptionError("Worker connection is unavailable")
         connection.send(
-            {"command": "transcribe", "audio": np.asarray(audio, dtype=np.float32)}
+            {
+                "command": "transcribe",
+                "audio": np.asarray(audio, dtype=np.float32),
+                "prompt": self.prompt(),
+            }
         )
         while True:
             message = connection.recv()

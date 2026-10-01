@@ -18,6 +18,17 @@ class SettingsModel:
     def selected_processor(self) -> str:
         return self.config.selected_processor
 
+    @property
+    def bias_prompt(self) -> str:
+        return self.config.bias_prompt
+
+    def set_bias_prompt(self, text: str) -> None:
+        text = text.strip()
+        if text == self.config.bias_prompt:
+            return
+        self.config = replace(self.config, bias_prompt=text)
+        self.store.save(self.config)
+
     def refresh(self) -> list[ProcessorInfo]:
         self.processors = self.registry.list_processors()
         keys = {processor.key for processor in self.processors}
@@ -88,6 +99,16 @@ class SettingsWindowController:
                 self.refreshUI()
 
             @objc.IBAction
+            def saveBiasPrompt_(self, sender):
+                try:
+                    outer.model.set_bias_prompt(str(sender.stringValue()))
+                except Exception as exc:
+                    outer.notify("Bias prompt save failed", str(exc))
+
+            def windowWillClose_(self, _notification):
+                self.saveBiasPrompt_(self.bias_field)
+
+            @objc.IBAction
             def newProcessor_(self, _sender):
                 alert = AppKit.NSAlert.alloc().init()
                 alert.setMessageText_("New Python Processor")
@@ -129,7 +150,7 @@ class SettingsWindowController:
             | AppKit.NSWindowStyleMaskMiniaturizable
         )
         window = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-            Foundation.NSMakeRect(0, 0, 480, 235),
+            Foundation.NSMakeRect(0, 0, 480, 395),
             style,
             AppKit.NSBackingStoreBuffered,
             False,
@@ -137,7 +158,35 @@ class SettingsWindowController:
         window.setTitle_("STT Local Settings")
         window.center()
         controller = Controller.alloc().initWithWindow_(window)
+        window.setDelegate_(controller)
         content = window.contentView()
+
+        bias_label = AppKit.NSTextField.labelWithString_("Bias prompt")
+        bias_label.setFrame_(Foundation.NSMakeRect(24, 345, 150, 24))
+        content.addSubview_(bias_label)
+
+        bias_field = AppKit.NSTextField.textFieldWithString_(
+            outer.model.bias_prompt
+        )
+        bias_field.setFrame_(Foundation.NSMakeRect(24, 255, 426, 84))
+        bias_field.setPlaceholderString_("Komodo, Hermes, Claub, Kubernetes")
+        bias_field.setUsesSingleLineMode_(False)
+        bias_field.cell().setWraps_(True)
+        bias_field.cell().setScrollable_(False)
+        bias_field.cell().setSendsActionOnEndEditing_(True)
+        bias_field.setTarget_(controller)
+        bias_field.setAction_("saveBiasPrompt:")
+        content.addSubview_(bias_field)
+        controller.bias_field = bias_field
+
+        bias_hint = AppKit.NSTextField.wrappingLabelWithString_(
+            "Names, jargon and spellings Whisper should expect. Saved when you "
+            "press Return or leave the field; applies to the next recording."
+        )
+        bias_hint.setFont_(AppKit.NSFont.systemFontOfSize_(11))
+        bias_hint.setTextColor_(AppKit.NSColor.secondaryLabelColor())
+        bias_hint.setFrame_(Foundation.NSMakeRect(24, 212, 426, 36))
+        content.addSubview_(bias_hint)
 
         label = AppKit.NSTextField.labelWithString_("Active processor")
         label.setFrame_(Foundation.NSMakeRect(24, 177, 150, 24))

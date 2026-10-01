@@ -63,6 +63,10 @@ Starting uses a compact double chirp and normal stop uses the Ping cue. Cancel u
 
 The transcript is pasted into whichever application has focus when transcription finishes, so changing applications while speaking is safe.
 
+## Bias prompt
+
+**Settings…** also has a **Bias prompt** field for names, jargon and spellings Whisper should expect, such as `Komodo, Hermes, Claub`. It is passed to Whisper as `initial_prompt`, which nudges recognition toward those words without adding them to the transcript. It is saved when you press Return, leave the field or close the window, and applies from the next recording on; leave it empty to disable biasing. Keep it short and natural: Whisper only conditions the first 30 seconds of a recording on it, and an overlong or sentence-like prompt can occasionally leak its style into the output.
+
 ## Python processors
 
 Choose **Settings…** from the status-bar menu. The window selects the active processor and provides **New Processor…**, **Reload**, and **Show in Finder** controls.

@@ -221,3 +221,36 @@ def test_explicit_cancel_stops_worker_without_retry():
     assert len(context.processes) == 1
     assert not manager.is_running
     assert context.processes[0].terminated
+
+
+def test_transcribe_sends_current_bias_prompt():
+    prompts = iter(["Kubernetes, Komodo", ""])
+    manager, context, _ = make_manager(
+        [
+            [
+                {"type": "ready"},
+                {"type": "result", "text": "one"},
+                {"type": "result", "text": "two"},
+            ]
+        ]
+    )
+    manager.prompt = lambda: next(prompts)
+
+    manager.transcribe(np.ones(2, dtype=np.float32))
+    manager.transcribe(np.ones(2, dtype=np.float32))
+
+    sent = context.parent_connections[0].sent
+    assert sent[0]["prompt"] == "Kubernetes, Komodo"
+    assert sent[1]["prompt"] == ""
+
+
+def test_transcription_options_include_prompt_only_when_set():
+    base = model_worker.transcription_options("model", "en")
+    assert "initial_prompt" not in base
+    assert base["condition_on_previous_text"] is False
+
+    biased = model_worker.transcription_options("model", "en", "  Komodo  ")
+    assert biased["initial_prompt"] == "Komodo"
+    assert "initial_prompt" not in model_worker.transcription_options(
+        "model", "en", "   "
+    )
