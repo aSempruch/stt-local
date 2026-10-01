@@ -7,6 +7,24 @@ from .config import AppConfig, ConfigStore
 from .processors import ProcessorInfo, ProcessorRegistry
 
 
+def bring_to_front(application: Any, window: Any) -> None:
+    """Show a window above other apps' windows and give it keyboard focus."""
+    import AppKit
+
+    # Launched from a bare Python interpreter, the app is background-only and
+    # can never activate, so its windows open behind everything else.
+    # Accessory apps can activate while still staying out of the Dock.
+    if application.activationPolicy() == AppKit.NSApplicationActivationPolicyProhibited:
+        application.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)
+    activate = getattr(application, "activate", None)
+    if activate is not None:
+        activate()
+    else:
+        application.activateIgnoringOtherApps_(True)
+    window.makeKeyAndOrderFront_(None)
+    window.orderFrontRegardless()
+
+
 class SettingsModel:
     def __init__(self, *, store: ConfigStore, registry: ProcessorRegistry) -> None:
         self.store = store
@@ -68,7 +86,11 @@ class SettingsWindowController:
             self._controller = self._make_controller()
         self._controller.refreshUI()
         self._controller.showWindow_(None)
-        self._controller.window().makeKeyAndOrderFront_(None)
+        import AppKit
+
+        bring_to_front(
+            AppKit.NSApplication.sharedApplication(), self._controller.window()
+        )
 
     def _make_controller(self) -> Any:
         import AppKit
@@ -107,6 +129,9 @@ class SettingsWindowController:
 
             def windowWillClose_(self, _notification):
                 self.saveBiasPrompt_(self.bias_field)
+                # Hand focus back to the previous app instead of leaving the
+                # windowless menu-bar app active.
+                AppKit.NSApplication.sharedApplication().hide_(None)
 
             @objc.IBAction
             def newProcessor_(self, _sender):
