@@ -20,7 +20,11 @@ WIDTH = PADDING * 2 + DOT_SIZE + DOT_GAP + BARS * BAR_WIDTH + (BARS - 1) * BAR_G
 BOTTOM_MARGIN = 24.0
 FRAME_INTERVAL = 1 / 30
 FLOOR_DB = -55.0
-CEILING_DB = -18.0
+# The top of the scale follows the recent peak so quiet built-in mics and
+# hot headsets both fill the pill; the minimum keeps room noise flat.
+MIN_CEILING_DB = -40.0
+MAX_CEILING_DB = -12.0
+GAIN_HISTORY = 128
 
 
 def overlay_mode(state: DictationState) -> str | None:
@@ -32,12 +36,19 @@ def overlay_mode(state: DictationState) -> str | None:
     }.get(state)
 
 
-def level_to_unit(rms: float) -> float:
+def level_to_unit(rms: float, ceiling_db: float = MAX_CEILING_DB) -> float:
     """Map block RMS onto 0..1 using a decibel scale, which tracks loudness."""
     if rms <= 0:
         return 0.0
     db = 20 * math.log10(rms)
-    return min(1.0, max(0.0, (db - FLOOR_DB) / (CEILING_DB - FLOOR_DB)))
+    return min(1.0, max(0.0, (db - FLOOR_DB) / (ceiling_db - FLOOR_DB)))
+
+
+def adaptive_ceiling(levels: list[float]) -> float:
+    peak = max((level for level in levels if level > 0), default=0.0)
+    if peak <= 0:
+        return MIN_CEILING_DB
+    return min(MAX_CEILING_DB, max(MIN_CEILING_DB, 20 * math.log10(peak)))
 
 
 def recording_heights(levels: list[float], bars: int = BARS) -> list[float]:
@@ -124,8 +135,10 @@ class DictationOverlay:
         if mode == "transcribing":
             heights = transcribing_heights(self._clock())
         else:
+            history = self._levels(GAIN_HISTORY)
+            ceiling = adaptive_ceiling(history)
             heights = recording_heights(
-                [level_to_unit(level) for level in self._levels(BARS)]
+                [level_to_unit(level, ceiling) for level in history[-BARS:]]
             )
         self._view.mode = mode
         self._view.heights = heights

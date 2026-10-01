@@ -50,3 +50,19 @@ def test_panel_frame_centers_above_bottom_of_visible_area():
     assert (width, height) == (150, 36)
     assert x == pytest.approx(100 + (1000 - 150) / 2)
     assert y == 50 + overlay.BOTTOM_MARGIN
+
+
+def test_level_to_unit_scales_against_given_ceiling():
+    assert overlay.level_to_unit(10 ** (-36 / 20), ceiling_db=-36.0) == pytest.approx(1.0)
+    assert overlay.level_to_unit(10 ** (-36 / 20)) < 1.0
+
+
+def test_adaptive_ceiling_follows_recent_peak_within_bounds():
+    def rms(db):
+        return 10 ** (db / 20)
+
+    assert overlay.adaptive_ceiling([rms(-60), rms(-36), rms(-50)]) == pytest.approx(-36.0)
+    # Silence must not stretch room noise to full height.
+    assert overlay.adaptive_ceiling([rms(-58)]) == overlay.MIN_CEILING_DB
+    assert overlay.adaptive_ceiling([rms(-3)]) == overlay.MAX_CEILING_DB
+    assert overlay.adaptive_ceiling([]) == overlay.MIN_CEILING_DB
