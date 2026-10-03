@@ -95,7 +95,7 @@ and two hooks in `~/.claude/settings.json`:
 }
 ```
 
-In a voice session, the prompt hook asks Claude to end each reply with a short `<spoken>…</spoken>` block written for listening, and the stop hook speaks only that block. A reply without one has its first prose paragraph read instead. Voice sessions are remembered as empty files named after the session ID in `~/Library/Application Support/STT Local/voice-sessions/`, so a resumed session keeps its setting; files untouched for 30 days are cleaned up. The hooks never block Claude Code, and do nothing when STT Local is not running.
+In a voice session, the prompt hook asks Claude to end each reply with a short `<spoken>…</spoken>` block written for listening, and the stop hook speaks only that block. A reply without one has its first prose paragraph read instead. Voice sessions are remembered as empty files named after the session ID in `~/Library/Application Support/STT Local/voice-sessions/`, so a resumed session keeps its setting; files untouched for 30 days are cleaned up. The hooks never block Claude Code, and do nothing when STT Local is not running. To show voice mode in a custom Claude Code status line, check whether the file named by the status line input's `session_id` exists in that directory.
 
 `stt-local-speech` also works on its own: `say "text"` (or text on standard input) and `stop`. It talks to the app over a private Unix socket at `~/Library/Application Support/STT Local/control.sock`. Set a different Kokoro voice, such as `am_michael` or `bf_emma`, with `speech_voice` in `config.json`.
 
