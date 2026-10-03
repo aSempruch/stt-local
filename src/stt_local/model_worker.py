@@ -64,7 +64,9 @@ def _exception_chain(exc: BaseException) -> list[BaseException]:
     return chain
 
 
-def describe_load_error(exc: BaseException, model_name: str) -> str:
+def describe_load_error(
+    exc: BaseException, model_name: str, kind: str = "Whisper model"
+) -> str:
     chain = _exception_chain(exc)
     details = f"{type(exc).__name__}: {exc}"
     if any(
@@ -74,7 +76,7 @@ def describe_load_error(exc: BaseException, model_name: str) -> str:
         for item in chain
     ):
         return (
-            f"Couldn't download the Whisper model {model_name}: the HTTPS "
+            f"Couldn't download the {kind} {model_name}: the HTTPS "
             "certificate is not trusted. A network filter such as Zscaler is "
             "probably intercepting the connection; trust its root certificate "
             "in Keychain Access, then try again."
@@ -86,10 +88,10 @@ def describe_load_error(exc: BaseException, model_name: str) -> str:
         for item in chain
     ):
         return (
-            f"Couldn't download the Whisper model {model_name}. Check the "
+            f"Couldn't download the {kind} {model_name}. Check the "
             f"network connection, then try again. ({details})"
         )
-    return f"Couldn't load the Whisper model {model_name}. ({details})"
+    return f"Couldn't load the {kind} {model_name}. ({details})"
 
 
 NOT_DOWNLOADING = -1.0

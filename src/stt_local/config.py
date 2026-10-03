@@ -5,7 +5,11 @@ import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from .constants import APPLICATION_SUPPORT_DIR, DEFAULT_IDLE_UNLOAD_SECONDS
+from .constants import (
+    APPLICATION_SUPPORT_DIR,
+    DEFAULT_IDLE_UNLOAD_SECONDS,
+    SPEECH_VOICE,
+)
 
 
 @dataclass(frozen=True)
@@ -13,6 +17,8 @@ class AppConfig:
     selected_processor: str = "plain_text"
     idle_unload_seconds: float = DEFAULT_IDLE_UNLOAD_SECONDS
     bias_prompt: str = ""
+    speak_claude_replies: bool = False
+    speech_voice: str = SPEECH_VOICE
 
 
 class ConfigStore:
@@ -26,13 +32,21 @@ class ConfigStore:
             selected = data["selected_processor"]
             idle_seconds = data["idle_unload_seconds"]
             bias_prompt = data.get("bias_prompt", "")
+            speak_replies = data.get("speak_claude_replies", False)
+            voice = data.get("speech_voice", SPEECH_VOICE)
             if not isinstance(selected, str) or not selected:
                 raise ValueError("selected_processor must be a non-empty string")
             if not isinstance(idle_seconds, (int, float)) or idle_seconds <= 0:
                 raise ValueError("idle_unload_seconds must be positive")
             if not isinstance(bias_prompt, str):
                 raise ValueError("bias_prompt must be a string")
-            return AppConfig(selected, float(idle_seconds), bias_prompt)
+            if not isinstance(speak_replies, bool):
+                raise ValueError("speak_claude_replies must be a boolean")
+            if not isinstance(voice, str) or not voice:
+                raise ValueError("speech_voice must be a non-empty string")
+            return AppConfig(
+                selected, float(idle_seconds), bias_prompt, speak_replies, voice
+            )
         except (FileNotFoundError, KeyError, TypeError, ValueError, json.JSONDecodeError):
             return AppConfig()
 

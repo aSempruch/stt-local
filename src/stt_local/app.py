@@ -7,6 +7,7 @@ from typing import Any
 from .alerts import menu_error_title, post_notification, report_error
 from .audio import AudioRecorder
 from .config import ConfigStore
+from .control import CommandHandler, ControlServer, ControlSocketInUse
 from .constants import POLL_INTERVAL_SECONDS, PROCESSORS_DIR
 from .coordinator import DictationCoordinator, DictationState
 from .hotkey import RightCommandGestures, RightCommandMonitor
@@ -16,6 +17,7 @@ from .overlay import DictationOverlay
 from .processors import ProcessorRegistry
 from .settings import SettingsModel, SettingsWindowController
 from .sounds import MacSounds
+from .speech import SpeechManager
 
 try:
     import rumps
@@ -112,6 +114,8 @@ if rumps is not None:
             settings: SettingsWindowController,
             settings_model: SettingsModel,
             monitor: RightCommandMonitor,
+            speech: SpeechManager,
+            control: ControlServer | None = None,
             overlay: DictationOverlay | None = None,
         ) -> None:
             super().__init__("STT Local", title=None, quit_button=None)
@@ -125,6 +129,8 @@ if rumps is not None:
                 settings_model, self._rebuild_menu
             )
             self.monitor = monitor
+            self.speech = speech
+            self.control = control
             self.overlay = overlay
             self.status_item = rumps.MenuItem("Idle")
             self._state = DictationState.IDLE
@@ -152,6 +158,9 @@ if rumps is not None:
                 processor_heading,
                 *self.processor_menu.build_items(),
                 rumps.MenuItem("Reload Processors", callback=self._reload_processors),
+                None,
+                self._speak_replies_item(),
+                rumps.MenuItem("Stop Speaking", callback=self._stop_speaking),
                 None,
                 rumps.MenuItem("Settings…", callback=self._show_settings),
                 None,
@@ -197,6 +206,23 @@ if rumps is not None:
                     "dictation will be transcribed when it finishes.",
                 )
 
+        def _speak_replies_item(self) -> Any:
+            item = rumps.MenuItem(
+                "Read Claude Code Replies Aloud", callback=self._toggle_speak_replies
+            )
+            item.state = int(self.settings_model.speak_claude_replies)
+            return item
+
+        def _toggle_speak_replies(self, _sender: Any) -> None:
+            enabled = not self.settings_model.speak_claude_replies
+            self.settings_model.set_speak_claude_replies(enabled)
+            if not enabled:
+                self.speech.stop()
+            self._rebuild_menu()
+
+        def _stop_speaking(self, _sender: Any) -> None:
+            self.speech.stop()
+
         def _show_settings(self, _sender: Any) -> None:
             self.settings_controller.show()
 
@@ -206,9 +232,12 @@ if rumps is not None:
         def _quit(self, _sender: Any) -> None:
             self._timer.stop()
             self.monitor.stop()
+            if self.control is not None:
+                self.control.close()
             if self.overlay is not None:
                 self.overlay.close()
             self.coordinator.shutdown()
+            self.speech.close()
             rumps.quit_application()
 
 
@@ -240,10 +269,22 @@ def build_app() -> Any:
         idle_seconds=idle_seconds,
         prompt=lambda: settings_model.bias_prompt,
     )
+    speech = SpeechManager(
+        voice=lambda: settings_model.speech_voice,
+        idle_seconds=idle_seconds,
+        on_error=lambda message: AppHelper.callAfter(
+            lambda: notify("Speech failed", message)
+        ),
+    )
+
+    def idle_unload_changed() -> None:
+        worker.reschedule_idle_shutdown()
+        speech.reschedule_idle_shutdown()
+
     settings = SettingsWindowController(
         settings_model,
         notify,
-        on_idle_unload_change=worker.reschedule_idle_shutdown,
+        on_idle_unload_change=idle_unload_changed,
     )
     recorder = AudioRecorder()
     coordinator = DictationCoordinator(
@@ -255,6 +296,8 @@ def build_app() -> Any:
         selected_processor=lambda: settings_model.selected_processor,
         notification_callback=notify,
         dispatch=lambda callback: AppHelper.callAfter(callback),
+        # Speech would talk over the dictation and end up in the recording.
+        event_callback=lambda name: speech.stop() if name == "capture_start" else None,
     )
     def dispatch_action(callback: Any) -> None:
         AppHelper.callAfter(callback)
@@ -267,11 +310,31 @@ def build_app() -> Any:
         ),
         cancel=lambda: dispatch_action(coordinator.cancel),
     )
+    def set_speak_replies(enabled: bool) -> None:
+        settings_model.set_speak_claude_replies(enabled)
+        if app is not None:
+            AppHelper.callAfter(app._rebuild_menu)
+
+    control: ControlServer | None = ControlServer(
+        CommandHandler(
+            speech=speech,
+            is_enabled=lambda: settings_model.speak_claude_replies,
+            set_enabled=set_speak_replies,
+        )
+    )
+    try:
+        control.start()
+    except (ControlSocketInUse, OSError) as exc:
+        report_error("Speech control unavailable", str(exc))
+        control = None
+
     app = DictationApp(
         coordinator=coordinator,
         settings=settings,
         settings_model=settings_model,
         monitor=RightCommandMonitor(gestures),
+        speech=speech,
+        control=control,
         overlay=DictationOverlay(recorder.recent_levels),
     )
     coordinator.status_callback = app.update_status

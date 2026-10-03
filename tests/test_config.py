@@ -59,3 +59,23 @@ def test_invalid_bias_prompt_returns_defaults(tmp_path):
     )
 
     assert ConfigStore(tmp_path).load() == AppConfig()
+
+
+def test_speech_settings_round_trip(tmp_path):
+    store = ConfigStore(tmp_path)
+    expected = AppConfig(speak_claude_replies=True, speech_voice="am_michael")
+
+    store.save(expected)
+
+    assert store.load() == expected
+
+
+def test_config_without_speech_settings_defaults_them(tmp_path):
+    (tmp_path / "config.json").write_text(
+        '{"selected_processor": "plain_text", "idle_unload_seconds": 30}'
+    )
+
+    config = ConfigStore(tmp_path).load()
+
+    assert config.speak_claude_replies is False
+    assert config.speech_voice == "af_heart"

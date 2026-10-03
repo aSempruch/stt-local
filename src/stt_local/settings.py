@@ -64,6 +64,21 @@ class SettingsModel:
     def idle_unload_seconds(self) -> float:
         return self.config.idle_unload_seconds
 
+    @property
+    def speak_claude_replies(self) -> bool:
+        return self.config.speak_claude_replies
+
+    @property
+    def speech_voice(self) -> str:
+        return self.config.speech_voice
+
+    def set_speak_claude_replies(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        if enabled == self.config.speak_claude_replies:
+            return
+        self.config = replace(self.config, speak_claude_replies=enabled)
+        self.store.save(self.config)
+
     def set_idle_unload_seconds(self, seconds: float) -> None:
         seconds = float(seconds)
         if seconds <= 0:

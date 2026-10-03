@@ -5,17 +5,25 @@ description = "Small local-first macOS menu-bar dictation app"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "en-core-web-sm>=3.8.0",
+    "espeakng-loader>=0.2.4",
+    "misaki>=0.9.4",
+    "mlx-audio>=0.5.7",
     "mlx-whisper>=0.4.3",
+    "num2words>=0.5.14",
     "numpy>=2.0",
+    "phonemizer-fork>=3.3.2",
     "pynput>=1.8",
     "pyobjc-framework-Cocoa>=10",
     "rumps>=0.4",
     "sounddevice>=0.5",
+    "spacy>=3.8.16",
     "truststore>=0.10",
 ]
 
 [project.scripts]
 stt-local = "stt_local.__main__:main"
+stt-local-speech = "stt_local.speech_cli:main"
 
 [dependency-groups]
 dev = [
@@ -32,3 +40,6 @@ packages = ["src/stt_local"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[tool.uv.sources]
+en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }

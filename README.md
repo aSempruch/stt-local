@@ -69,6 +69,29 @@ While dictation is active, a small floating pill appears at the bottom centre of
 
 **Settings…** also has a **Bias prompt** field for names, jargon and spellings Whisper should expect, such as `Komodo, Hermes, Claub`. It is passed to Whisper as `initial_prompt`, which nudges recognition toward those words without adding them to the transcript. It is saved when you press Return, leave the field or close the window, and applies from the next recording on; leave it empty to disable biasing. Keep it short and natural: Whisper only conditions the first 30 seconds of a recording on it, and an overlong or sentence-like prompt can occasionally leak its style into the output.
 
+## Reading Claude Code replies aloud
+
+STT Local can also speak, using the local [Kokoro-82M](https://huggingface.co/mlx-community/Kokoro-82M-bf16) voice through MLX. It works like the Whisper model: a separate worker loads on the first request (about 2.5 seconds, plus a one-time download of about 370 MB), stays warm for follow-ups (about 0.4 seconds to the first sentence), and exits after the **Unload model after** delay. Replies are spoken a sentence at a time, so playback starts before the whole reply is rendered.
+
+Turn it on with **Read Claude Code Replies Aloud** in the menu bar. **Stop Speaking** cuts off the current reply; starting a dictation or submitting a new prompt does too. A newer reply replaces one still being spoken.
+
+Two Claude Code hooks connect it, in `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "Stop": [{"hooks": [{"type": "command", "timeout": 5,
+      "command": "~/repos/stt-local/.venv/bin/stt-local-speech claude-stop-hook"}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "timeout": 5,
+      "command": "~/repos/stt-local/.venv/bin/stt-local-speech claude-prompt-hook"}]}]
+  }
+}
+```
+
+While reading is on, the prompt hook asks Claude to end each reply with a short `<spoken>…</spoken>` block written for listening, and the stop hook speaks only that block. A reply without one has its first prose paragraph read instead. Both hooks do nothing when STT Local is not running or reading is off, and never block Claude Code.
+
+`stt-local-speech` also works on its own: `say "text"` (or text on standard input), `stop`, `on`, `off`, `toggle` and `status`. It talks to the app over a private Unix socket at `~/Library/Application Support/STT Local/control.sock`. Set a different Kokoro voice, such as `am_michael` or `bf_emma`, with `speech_voice` in `config.json`.
+
 ## Python processors
 
 Choose **Settings…** from the status-bar menu. The window selects the active processor and provides **New Processor…**, **Reload**, and **Show in Finder** controls.
@@ -159,7 +182,7 @@ The persisted configuration is `~/Library/Application Support/STT Local/config.j
 - **Model download fails on a work network:** The model is downloaded over HTTPS, which STT Local verifies against the macOS keychain. Behind a TLS-inspecting proxy such as Zscaler, its root certificate must be trusted there. This is usually already done on managed Macs; otherwise run `security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db /path/to/root-certificate.crt`, then dictate again.
 - **First transcription is slow:** The model may still be downloading or warming. Later recordings reuse the resident worker.
 - **Processor is not listed:** Use Reload and confirm the file ends in `.py` and does not begin with `_`.
-- **Model RAM remains allocated:** Wait for the unload delay set in Settings (10 minutes by default) or quit STT Local; the dedicated model process then exits.
+- **Model RAM remains allocated:** Wait for the unload delay set in Settings (10 minutes by default) or quit STT Local; the dedicated Whisper and voice processes then exit.
 
 ## License
 
