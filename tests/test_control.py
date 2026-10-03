@@ -33,17 +33,6 @@ class FakeSpeech:
         self.stops += 1
 
 
-def make_handler(enabled=False):
-    speech = FakeSpeech()
-    state = {"enabled": enabled}
-    handler = CommandHandler(
-        speech=speech,
-        is_enabled=lambda: state["enabled"],
-        set_enabled=lambda value: state.update(enabled=value),
-    )
-    return handler, speech, state
-
-
 def test_round_trip_through_socket(socket_path):
     server = ControlServer(lambda request: {"ok": True, "echo": request}, socket_path)
     server.start()
@@ -99,42 +88,22 @@ def test_live_socket_is_not_stolen(socket_path):
         first.close()
 
 
-def test_conditional_speak_respects_toggle():
-    handler, speech, state = make_handler(enabled=False)
+def test_handler_speaks_and_stops():
+    speech = FakeSpeech()
+    handler = CommandHandler(speech)
 
-    reply = handler({"command": "speak", "text": "Hi.", "if_enabled": True})
-    assert reply == {"ok": True, "enabled": False, "spoken": False}
-    assert speech.spoken == []
-
-    state["enabled"] = True
-    reply = handler({"command": "speak", "text": "Hi.", "if_enabled": True})
-    assert reply == {"ok": True, "enabled": True, "spoken": True}
-    assert speech.spoken == ["Hi."]
-
-
-def test_unconditional_speak_ignores_toggle():
-    handler, speech, _ = make_handler(enabled=False)
-
-    handler({"command": "speak", "text": "Hi."})
+    assert handler({"command": "speak", "text": "Hi."}) == {"ok": True}
+    assert handler({"command": "stop"}) == {"ok": True}
+    assert handler({"command": "status"}) == {"ok": True}
 
     assert speech.spoken == ["Hi."]
-
-
-def test_turning_off_stops_speech():
-    handler, speech, state = make_handler(enabled=True)
-
-    assert handler({"command": "set_enabled", "enabled": "toggle"})["enabled"] is False
     assert speech.stops == 1
-    assert handler({"command": "set_enabled", "enabled": True})["enabled"] is True
-    assert state["enabled"] is True
 
 
 def test_invalid_requests_raise():
-    handler, _, _ = make_handler()
+    handler = CommandHandler(FakeSpeech())
 
     with pytest.raises(ValueError):
         handler({"command": "speak"})
-    with pytest.raises(ValueError):
-        handler({"command": "set_enabled", "enabled": "yes"})
     with pytest.raises(ValueError):
         handler({"command": "dance"})

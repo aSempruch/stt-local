@@ -73,9 +73,16 @@ While dictation is active, a small floating pill appears at the bottom centre of
 
 STT Local can also speak, using the local [Kokoro-82M](https://huggingface.co/mlx-community/Kokoro-82M-bf16) voice through MLX. It works like the Whisper model: a separate worker loads on the first request (about 2.5 seconds, plus a one-time download of about 370 MB), stays warm for follow-ups (about 0.4 seconds to the first sentence), and exits after the **Unload model after** delay. Replies are spoken a sentence at a time, so playback starts before the whole reply is rendered.
 
-Turn it on with **Read Claude Code Replies Aloud** in the menu bar. **Stop Speaking** cuts off the current reply; starting a dictation or submitting a new prompt does too. A newer reply replaces one still being spoken.
+Voice mode is per Claude Code session: type `/voice-mode` in a session to toggle it, or `/voice-mode on` / `/voice-mode off`. The hook handles the command itself, so it never reaches the model. Other sessions stay silent. **Stop Speaking** in the menu bar cuts off the current reply; starting a dictation or submitting a new prompt in any session does too. A newer reply replaces one still being spoken.
 
-Two Claude Code hooks connect it, in `~/.claude/settings.json`:
+Setting it up takes the `/voice-mode` command file, which lets Claude Code recognize and complete the command:
+
+```bash
+mkdir -p ~/.claude/commands
+cp ~/repos/stt-local/integrations/claude-code/voice-mode.md ~/.claude/commands/
+```
+
+and two hooks in `~/.claude/settings.json`:
 
 ```json
 {
@@ -88,9 +95,9 @@ Two Claude Code hooks connect it, in `~/.claude/settings.json`:
 }
 ```
 
-While reading is on, the prompt hook asks Claude to end each reply with a short `<spoken>…</spoken>` block written for listening, and the stop hook speaks only that block. A reply without one has its first prose paragraph read instead. Both hooks do nothing when STT Local is not running or reading is off, and never block Claude Code.
+In a voice session, the prompt hook asks Claude to end each reply with a short `<spoken>…</spoken>` block written for listening, and the stop hook speaks only that block. A reply without one has its first prose paragraph read instead. Voice sessions are remembered as empty files named after the session ID in `~/Library/Application Support/STT Local/voice-sessions/`, so a resumed session keeps its setting; files untouched for 30 days are cleaned up. The hooks never block Claude Code, and do nothing when STT Local is not running.
 
-`stt-local-speech` also works on its own: `say "text"` (or text on standard input), `stop`, `on`, `off`, `toggle` and `status`. It talks to the app over a private Unix socket at `~/Library/Application Support/STT Local/control.sock`. Set a different Kokoro voice, such as `am_michael` or `bf_emma`, with `speech_voice` in `config.json`.
+`stt-local-speech` also works on its own: `say "text"` (or text on standard input) and `stop`. It talks to the app over a private Unix socket at `~/Library/Application Support/STT Local/control.sock`. Set a different Kokoro voice, such as `am_michael` or `bf_emma`, with `speech_voice` in `config.json`.
 
 ## Python processors
 

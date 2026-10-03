@@ -63,7 +63,7 @@ def test_invalid_bias_prompt_returns_defaults(tmp_path):
 
 def test_speech_settings_round_trip(tmp_path):
     store = ConfigStore(tmp_path)
-    expected = AppConfig(speak_claude_replies=True, speech_voice="am_michael")
+    expected = AppConfig(speech_voice="am_michael")
 
     store.save(expected)
 
@@ -75,7 +75,15 @@ def test_config_without_speech_settings_defaults_them(tmp_path):
         '{"selected_processor": "plain_text", "idle_unload_seconds": 30}'
     )
 
-    config = ConfigStore(tmp_path).load()
+    assert ConfigStore(tmp_path).load().speech_voice == "af_heart"
 
-    assert config.speak_claude_replies is False
-    assert config.speech_voice == "af_heart"
+
+def test_retired_read_aloud_toggle_is_ignored(tmp_path):
+    (tmp_path / "config.json").write_text(
+        '{"selected_processor": "casual_discord", "idle_unload_seconds": 30,'
+        ' "speak_claude_replies": true}'
+    )
+
+    assert ConfigStore(tmp_path).load() == AppConfig(
+        selected_processor="casual_discord", idle_unload_seconds=30.0
+    )

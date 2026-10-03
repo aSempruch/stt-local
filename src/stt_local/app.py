@@ -159,7 +159,6 @@ if rumps is not None:
                 *self.processor_menu.build_items(),
                 rumps.MenuItem("Reload Processors", callback=self._reload_processors),
                 None,
-                self._speak_replies_item(),
                 rumps.MenuItem("Stop Speaking", callback=self._stop_speaking),
                 None,
                 rumps.MenuItem("Settings…", callback=self._show_settings),
@@ -205,20 +204,6 @@ if rumps is not None:
                     "This happens once and can take a few minutes. Your "
                     "dictation will be transcribed when it finishes.",
                 )
-
-        def _speak_replies_item(self) -> Any:
-            item = rumps.MenuItem(
-                "Read Claude Code Replies Aloud", callback=self._toggle_speak_replies
-            )
-            item.state = int(self.settings_model.speak_claude_replies)
-            return item
-
-        def _toggle_speak_replies(self, _sender: Any) -> None:
-            enabled = not self.settings_model.speak_claude_replies
-            self.settings_model.set_speak_claude_replies(enabled)
-            if not enabled:
-                self.speech.stop()
-            self._rebuild_menu()
 
         def _stop_speaking(self, _sender: Any) -> None:
             self.speech.stop()
@@ -310,18 +295,7 @@ def build_app() -> Any:
         ),
         cancel=lambda: dispatch_action(coordinator.cancel),
     )
-    def set_speak_replies(enabled: bool) -> None:
-        settings_model.set_speak_claude_replies(enabled)
-        if app is not None:
-            AppHelper.callAfter(app._rebuild_menu)
-
-    control: ControlServer | None = ControlServer(
-        CommandHandler(
-            speech=speech,
-            is_enabled=lambda: settings_model.speak_claude_replies,
-            set_enabled=set_speak_replies,
-        )
-    )
+    control: ControlServer | None = ControlServer(CommandHandler(speech))
     try:
         control.start()
     except (ControlSocketInUse, OSError) as exc:

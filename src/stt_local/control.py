@@ -102,18 +102,10 @@ def send_command(
 
 
 class CommandHandler:
-    """Maps control requests onto the speech manager and the saved toggle."""
+    """Maps control requests onto the speech manager."""
 
-    def __init__(
-        self,
-        *,
-        speech: Any,
-        is_enabled: Callable[[], bool],
-        set_enabled: Callable[[bool], None],
-    ) -> None:
+    def __init__(self, speech: Any) -> None:
         self.speech = speech
-        self.is_enabled = is_enabled
-        self.set_enabled = set_enabled
 
     def __call__(self, request: dict[str, Any]) -> dict[str, Any]:
         command = request.get("command")
@@ -121,28 +113,11 @@ class CommandHandler:
             text = request.get("text")
             if not isinstance(text, str):
                 raise ValueError("speak needs a text string")
-            spoken = bool(text.strip()) and (
-                not request.get("if_enabled") or self.is_enabled()
-            )
-            if spoken:
-                self.speech.speak(text)
-            return self._reply(spoken=spoken)
+            self.speech.speak(text)
+            return {"ok": True}
         if command == "stop":
             self.speech.stop()
-            return self._reply()
+            return {"ok": True}
         if command == "status":
-            return self._reply()
-        if command == "set_enabled":
-            enabled = request.get("enabled")
-            if enabled == "toggle":
-                enabled = not self.is_enabled()
-            if not isinstance(enabled, bool):
-                raise ValueError('enabled must be true, false or "toggle"')
-            self.set_enabled(enabled)
-            if not enabled:
-                self.speech.stop()
-            return self._reply()
+            return {"ok": True}
         raise ValueError(f"Unknown command: {command}")
-
-    def _reply(self, **extra: Any) -> dict[str, Any]:
-        return {"ok": True, "enabled": self.is_enabled(), **extra}
