@@ -213,6 +213,7 @@ def _mouse_listener_factory(on_click: Callable[[], None]) -> Any:
 
     return mouse.Listener(
         on_click=lambda _x, _y, _button, pressed: on_click() if pressed else None,
+        on_scroll=lambda _x, _y, _dx, _dy: on_click(),
     )
 
 
@@ -248,7 +249,7 @@ class RightCommandMonitor:
                 "Grant Accessibility permission to the STT Local Python executable"
             )
         self._listener = listener
-        # A click while Right Command is held is a Command-click, not a gesture.
+        # A click or scroll while Right Command is held is a chord, not a gesture.
         mouse_listener = self._mouse_listener_factory(
             self._gestures.other_key_pressed
         )

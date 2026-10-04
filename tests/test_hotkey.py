@@ -1,5 +1,9 @@
 from stt_local.coordinator import DictationState
-from stt_local.hotkey import RightCommandGestures, RightCommandMonitor
+from stt_local.hotkey import (
+    RightCommandGestures,
+    RightCommandMonitor,
+    _mouse_listener_factory,
+)
 
 
 class FakeTimer:
@@ -289,6 +293,17 @@ def test_monitor_forwards_mouse_click_to_gestures_as_chord():
     assert actions == []
     assert mouse_listeners[0].started
     assert mouse_listeners[0].stopped
+
+
+def test_mouse_listener_reports_button_presses_and_scrolls_only():
+    chords = []
+    listener = _mouse_listener_factory(lambda: chords.append("chord"))
+
+    listener.on_click(0, 0, None, True)
+    listener.on_click(0, 0, None, False)
+    listener.on_scroll(0, 0, 0, -1)
+
+    assert chords == ["chord", "chord"]
 
 
 def test_monitor_rejects_untrusted_listener():
