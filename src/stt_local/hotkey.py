@@ -208,6 +208,14 @@ def _listener_factory(
     )
 
 
+def _mouse_listener_factory(on_click: Callable[[], None]) -> Any:
+    from pynput import mouse
+
+    return mouse.Listener(
+        on_click=lambda _x, _y, _button, pressed: on_click() if pressed else None,
+    )
+
+
 class RightCommandMonitor:
     def __init__(
         self,
@@ -217,10 +225,14 @@ class RightCommandMonitor:
             [Callable[[], None], Callable[[], None], Callable[[], None]], Any
         ]
         = _listener_factory,
+        mouse_listener_factory: Callable[[Callable[[], None]], Any]
+        = _mouse_listener_factory,
     ) -> None:
         self._gestures = gestures
         self._listener_factory = listener_factory
+        self._mouse_listener_factory = mouse_listener_factory
         self._listener: Any | None = None
+        self._mouse_listener: Any | None = None
 
     def start(self) -> None:
         listener = self._listener_factory(
@@ -236,9 +248,18 @@ class RightCommandMonitor:
                 "Grant Accessibility permission to the STT Local Python executable"
             )
         self._listener = listener
+        # A click while Right Command is held is a Command-click, not a gesture.
+        mouse_listener = self._mouse_listener_factory(
+            self._gestures.other_key_pressed
+        )
+        mouse_listener.start()
+        self._mouse_listener = mouse_listener
 
     def stop(self) -> None:
         self._gestures.stop()
+        if self._mouse_listener is not None:
+            self._mouse_listener.stop()
+            self._mouse_listener = None
         if self._listener is not None:
             self._listener.stop()
             self._listener = None

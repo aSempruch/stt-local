@@ -224,7 +224,11 @@ def test_monitor_starts_and_stops_listener():
         listeners.append(listener)
         return listener
 
-    monitor = RightCommandMonitor(gestures, listener_factory=listener_factory)
+    monitor = RightCommandMonitor(
+        gestures,
+        listener_factory=listener_factory,
+        mouse_listener_factory=lambda _click: FakeListener(None, None),
+    )
     monitor.start()
     monitor.stop()
 
@@ -242,7 +246,11 @@ def test_monitor_forwards_other_key_to_gestures():
         listeners.append(listener)
         return listener
 
-    monitor = RightCommandMonitor(gestures, listener_factory=listener_factory)
+    monitor = RightCommandMonitor(
+        gestures,
+        listener_factory=listener_factory,
+        mouse_listener_factory=lambda _click: FakeListener(None, None),
+    )
     monitor.start()
     listeners[0].on_press()
     listeners[0].on_other_key()
@@ -251,11 +259,46 @@ def test_monitor_forwards_other_key_to_gestures():
     monitor.stop()
 
 
+def test_monitor_forwards_mouse_click_to_gestures_as_chord():
+    gestures, _, actions, timers = make_gestures(DictationState.RECORDING_READY)
+    keyboard_listeners = []
+    mouse_listeners = []
+
+    def listener_factory(on_press, on_release, on_other_key):
+        listener = FakeListener(on_press, on_release, on_other_key)
+        keyboard_listeners.append(listener)
+        return listener
+
+    def mouse_listener_factory(on_click):
+        listener = FakeListener(None, None, on_click)
+        mouse_listeners.append(listener)
+        return listener
+
+    monitor = RightCommandMonitor(
+        gestures,
+        listener_factory=listener_factory,
+        mouse_listener_factory=mouse_listener_factory,
+    )
+    monitor.start()
+    keyboard_listeners[0].on_press()
+    mouse_listeners[0].on_other_key()
+    assert timers[-1].cancelled
+    keyboard_listeners[0].on_release()
+    monitor.stop()
+
+    assert actions == []
+    assert mouse_listeners[0].started
+    assert mouse_listeners[0].stopped
+
+
 def test_monitor_rejects_untrusted_listener():
     gestures, *_ = make_gestures()
     listener = FakeListener(None, None, trusted=False)
+    mouse_listener = FakeListener(None, None)
     monitor = RightCommandMonitor(
-        gestures, listener_factory=lambda _press, _release, _other: listener
+        gestures,
+        listener_factory=lambda _press, _release, _other: listener,
+        mouse_listener_factory=lambda _click: mouse_listener,
     )
 
     try:
@@ -265,3 +308,4 @@ def test_monitor_rejects_untrusted_listener():
     else:
         raise AssertionError("expected missing permission to fail")
     assert listener.stopped
+    assert not mouse_listener.started
