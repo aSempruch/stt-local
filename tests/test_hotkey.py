@@ -53,7 +53,7 @@ def test_idle_tap_starts_immediately_on_release_without_double_tap_delay():
     gestures.release()
 
     assert actions == ["toggle"]
-    assert [timer.delay for timer in timers] == [0.70, 0.20]
+    assert [timer.delay for timer in timers] == [0.50, 0.20]
     assert timers[0].cancelled
 
 
@@ -127,6 +127,34 @@ def test_long_press_cancels_as_soon_as_threshold_is_reached():
     assert actions == ["cancel"]
     gestures.release()
     assert actions == ["cancel"]
+
+
+def test_timings_are_read_for_each_press_so_settings_apply_live():
+    durations = {"double_tap": 0.20, "long_press": 0.50}
+    timers = []
+
+    def timer_factory(delay, callback):
+        timers.append(FakeTimer(delay, callback))
+        return timers[-1]
+
+    gestures = RightCommandGestures(
+        state=lambda: DictationState.RECORDING_READY,
+        toggle=lambda: None,
+        submit=lambda: None,
+        cancel=lambda: None,
+        timer_factory=timer_factory,
+        double_tap_seconds=lambda: durations["double_tap"],
+        long_press_seconds=lambda: durations["long_press"],
+    )
+
+    gestures.press()
+    gestures.release()
+    durations.update(double_tap=0.35, long_press=0.30)
+    timers[-1].fire()
+    gestures.press()
+    gestures.release()
+
+    assert [timer.delay for timer in timers] == [0.50, 0.20, 0.30, 0.35]
 
 
 def test_idle_long_press_does_not_start_recording():

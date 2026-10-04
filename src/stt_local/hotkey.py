@@ -5,12 +5,11 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from .constants import DEFAULT_DOUBLE_TAP_SECONDS, DEFAULT_LONG_PRESS_SECONDS
 from .coordinator import DictationState
 
 
-DOUBLE_TAP_SECONDS = 0.20
 MIN_DOUBLE_TAP_SECONDS = 0.06
-LONG_PRESS_SECONDS = 0.70
 
 
 def _timer_factory(delay: float, callback: Callable[[], None]) -> threading.Timer:
@@ -31,8 +30,8 @@ class RightCommandGestures:
         cancel: Callable[[], None],
         timer_factory: Callable[[float, Callable[[], None]], Any] = _timer_factory,
         clock: Callable[[], float] = time.monotonic,
-        double_tap_seconds: float = DOUBLE_TAP_SECONDS,
-        long_press_seconds: float = LONG_PRESS_SECONDS,
+        double_tap_seconds: Callable[[], float] = lambda: DEFAULT_DOUBLE_TAP_SECONDS,
+        long_press_seconds: Callable[[], float] = lambda: DEFAULT_LONG_PRESS_SECONDS,
     ) -> None:
         self._state = state
         self._toggle = toggle
@@ -80,7 +79,7 @@ class RightCommandGestures:
             hold_token = object()
             self._hold_token = hold_token
             self._hold_timer = self._new_timer(
-                self._long_press_seconds,
+                self._long_press_seconds(),
                 lambda: self._fire_long_press(hold_token),
             )
 
@@ -109,7 +108,7 @@ class RightCommandGestures:
                 start_guard_token = object()
                 self._start_guard_token = start_guard_token
                 self._start_guard_timer = self._new_timer(
-                    self._double_tap_seconds,
+                    self._double_tap_seconds(),
                     lambda: self._clear_start_guard(start_guard_token),
                 )
             elif self._press_state in {
@@ -122,7 +121,7 @@ class RightCommandGestures:
                     single_tap_token = object()
                     self._single_tap_token = single_tap_token
                     self._single_tap_timer = self._new_timer(
-                        self._double_tap_seconds,
+                        self._double_tap_seconds(),
                         lambda: self._fire_single_tap(single_tap_token),
                     )
             self._second_tap = False

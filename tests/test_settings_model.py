@@ -148,3 +148,33 @@ def test_idle_unload_options_label_presets_and_keep_custom_value():
     custom = idle_unload_options(25)
     assert custom[0] == (25.0, "25 seconds")
     assert len(custom) == 7
+
+
+def test_gesture_timings_validate_and_persist(tmp_path):
+    model, store, _ = make_model(tmp_path)
+    assert model.long_press_seconds == 0.5
+    assert model.double_tap_seconds == 0.2
+
+    model.set_long_press_seconds(0.4)
+    model.set_double_tap_seconds(0.3)
+
+    assert store.load().long_press_seconds == 0.4
+    assert store.load().double_tap_seconds == 0.3
+    assert store.load().idle_unload_seconds == 25
+    with pytest.raises(ValueError, match="positive"):
+        model.set_long_press_seconds(0)
+    with pytest.raises(ValueError, match="positive"):
+        model.set_double_tap_seconds(-0.1)
+
+
+def test_milliseconds_options_label_presets_and_keep_custom_value():
+    from stt_local.settings import LONG_PRESS_CHOICES, milliseconds_options
+
+    options = milliseconds_options(LONG_PRESS_CHOICES, 0.5)
+    assert options[0] == (0.3, "300 ms")
+    assert (0.5, "500 ms") in options
+    assert len(options) == len(LONG_PRESS_CHOICES)
+
+    custom = milliseconds_options(LONG_PRESS_CHOICES, 0.45)
+    assert (0.45, "450 ms") in custom
+    assert len(custom) == len(LONG_PRESS_CHOICES) + 1

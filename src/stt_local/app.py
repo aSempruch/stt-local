@@ -294,6 +294,8 @@ def build_app() -> Any:
             lambda: coordinator.stop_recording(submit=True)
         ),
         cancel=lambda: dispatch_action(coordinator.cancel),
+        double_tap_seconds=lambda: settings_model.double_tap_seconds,
+        long_press_seconds=lambda: settings_model.long_press_seconds,
     )
     control: ControlServer | None = ControlServer(CommandHandler(speech))
     try:

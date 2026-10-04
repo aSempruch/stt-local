@@ -52,12 +52,14 @@ See [Troubleshooting](#troubleshooting) if recording or pasting does not work.
 
 ## Keyboard controls
 
-STT Local monitors the Right Command key directly. Taps take effect after Right Command is released. A hold cancels as soon as it reaches 700 ms. Pressing another key before a gesture activates makes it a normal keyboard shortcut and does not control dictation:
+STT Local monitors the Right Command key directly. Taps take effect after Right Command is released. A hold cancels as soon as it reaches 500 ms. Pressing another key before a gesture activates makes it a normal keyboard shortcut and does not control dictation:
 
 - Tap while idle: start recording immediately on release.
 - Tap while recording: stop, transcribe, and paste after a 200 ms double-tap window.
 - Double-tap while recording: stop, transcribe, paste, then press Return.
-- Hold for 700 ms: discard an active recording or cancel active transcription.
+- Hold for 500 ms: discard an active recording or cancel active transcription.
+
+Change both timings in **Settings…**: **Long press to cancel** sets the hold, and **Double-tap window** sets how long a stop waits for a second tap. They apply from the next press.
 
 Starting uses a compact double chirp and normal stop uses the Ping cue. Cancel uses Pop; submit uses its own low confirmation cue before transcription. Cancelled recordings are discarded. Cancelling active transcription terminates the model worker, so the next recording reloads the model.
 

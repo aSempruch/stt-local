@@ -8,6 +8,8 @@ from .processors import ProcessorInfo, ProcessorRegistry
 
 
 IDLE_UNLOAD_CHOICES = (60.0, 300.0, 600.0, 1800.0, 3600.0, 14400.0)
+LONG_PRESS_CHOICES = (0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1.0)
+DOUBLE_TAP_CHOICES = (0.15, 0.2, 0.25, 0.3, 0.4, 0.5)
 
 
 def idle_unload_label(seconds: float) -> str:
@@ -25,6 +27,18 @@ def idle_unload_options(current: float) -> list[tuple[float, str]]:
     """Preset timeouts, plus a hand-edited config value so it stays visible."""
     choices = sorted({*IDLE_UNLOAD_CHOICES, float(current)})
     return [(seconds, idle_unload_label(seconds)) for seconds in choices]
+
+
+def milliseconds_label(seconds: float) -> str:
+    return f"{round(seconds * 1000)} ms"
+
+
+def milliseconds_options(
+    choices: tuple[float, ...], current: float
+) -> list[tuple[float, str]]:
+    """Preset durations, plus a hand-edited config value so it stays visible."""
+    values = sorted({*choices, float(current)})
+    return [(seconds, milliseconds_label(seconds)) for seconds in values]
 
 
 def bring_to_front(application: Any, window: Any) -> None:
@@ -68,13 +82,30 @@ class SettingsModel:
     def speech_voice(self) -> str:
         return self.config.speech_voice
 
+    @property
+    def double_tap_seconds(self) -> float:
+        return self.config.double_tap_seconds
+
+    @property
+    def long_press_seconds(self) -> float:
+        return self.config.long_press_seconds
+
     def set_idle_unload_seconds(self, seconds: float) -> None:
+        self._set_seconds("idle_unload_seconds", seconds, "The unload delay")
+
+    def set_double_tap_seconds(self, seconds: float) -> None:
+        self._set_seconds("double_tap_seconds", seconds, "The double-tap window")
+
+    def set_long_press_seconds(self, seconds: float) -> None:
+        self._set_seconds("long_press_seconds", seconds, "The long-press delay")
+
+    def _set_seconds(self, field: str, seconds: float, description: str) -> None:
         seconds = float(seconds)
         if seconds <= 0:
-            raise ValueError("The unload delay must be positive")
-        if seconds == self.config.idle_unload_seconds:
+            raise ValueError(f"{description} must be positive")
+        if seconds == getattr(self.config, field):
             return
-        self.config = replace(self.config, idle_unload_seconds=seconds)
+        self.config = replace(self.config, **{field: seconds})
         self.store.save(self.config)
 
     def set_bias_prompt(self, text: str) -> None:
@@ -150,15 +181,52 @@ class SettingsWindowController:
                         selected_index = index
                 self.popup.selectItemAtIndex_(selected_index)
 
-                current = outer.model.idle_unload_seconds
-                self.idle_popup.removeAllItems()
-                for index, (seconds, label) in enumerate(
-                    idle_unload_options(current)
-                ):
-                    self.idle_popup.addItemWithTitle_(label)
-                    self.idle_popup.lastItem().setRepresentedObject_(seconds)
+                self.fillSecondsPopup(
+                    self.idle_popup,
+                    idle_unload_options(outer.model.idle_unload_seconds),
+                    outer.model.idle_unload_seconds,
+                )
+                self.fillSecondsPopup(
+                    self.long_press_popup,
+                    milliseconds_options(
+                        LONG_PRESS_CHOICES, outer.model.long_press_seconds
+                    ),
+                    outer.model.long_press_seconds,
+                )
+                self.fillSecondsPopup(
+                    self.double_tap_popup,
+                    milliseconds_options(
+                        DOUBLE_TAP_CHOICES, outer.model.double_tap_seconds
+                    ),
+                    outer.model.double_tap_seconds,
+                )
+
+            @objc.python_method
+            def fillSecondsPopup(self, popup, options, current):
+                popup.removeAllItems()
+                for index, (seconds, label) in enumerate(options):
+                    popup.addItemWithTitle_(label)
+                    popup.lastItem().setRepresentedObject_(seconds)
                     if seconds == current:
-                        self.idle_popup.selectItemAtIndex_(index)
+                        popup.selectItemAtIndex_(index)
+
+            @objc.IBAction
+            def selectLongPress_(self, sender):
+                seconds = float(sender.selectedItem().representedObject())
+                try:
+                    outer.model.set_long_press_seconds(seconds)
+                except Exception as exc:
+                    outer.notify("Long-press delay save failed", str(exc))
+                self.refreshUI()
+
+            @objc.IBAction
+            def selectDoubleTap_(self, sender):
+                seconds = float(sender.selectedItem().representedObject())
+                try:
+                    outer.model.set_double_tap_seconds(seconds)
+                except Exception as exc:
+                    outer.notify("Double-tap window save failed", str(exc))
+                self.refreshUI()
 
             @objc.IBAction
             def selectIdleUnload_(self, sender):
@@ -234,7 +302,7 @@ class SettingsWindowController:
             | AppKit.NSWindowStyleMaskMiniaturizable
         )
         window = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-            Foundation.NSMakeRect(0, 0, 480, 465),
+            Foundation.NSMakeRect(0, 0, 480, 585),
             style,
             AppKit.NSBackingStoreBuffered,
             False,
@@ -244,6 +312,31 @@ class SettingsWindowController:
         controller = Controller.alloc().initWithWindow_(window)
         window.setDelegate_(controller)
         content = window.contentView()
+
+        gesture_rows = [
+            ("Long press to cancel", "selectLongPress:", "long_press_popup", 535),
+            ("Double-tap window", "selectDoubleTap:", "double_tap_popup", 500),
+        ]
+        for title, action, attribute, y in gesture_rows:
+            row_label = AppKit.NSTextField.labelWithString_(title)
+            row_label.setFrame_(Foundation.NSMakeRect(24, y, 150, 24))
+            content.addSubview_(row_label)
+            row_popup = AppKit.NSPopUpButton.alloc().initWithFrame_pullsDown_(
+                Foundation.NSMakeRect(165, y - 2, 285, 28), False
+            )
+            row_popup.setTarget_(controller)
+            row_popup.setAction_(action)
+            content.addSubview_(row_popup)
+            setattr(controller, attribute, row_popup)
+
+        gesture_hint = AppKit.NSTextField.wrappingLabelWithString_(
+            "Right Command timing. Holding this long cancels; a second tap "
+            "within the window submits, and a single tap stops once it passes."
+        )
+        gesture_hint.setFont_(AppKit.NSFont.systemFontOfSize_(11))
+        gesture_hint.setTextColor_(AppKit.NSColor.secondaryLabelColor())
+        gesture_hint.setFrame_(Foundation.NSMakeRect(24, 455, 426, 36))
+        content.addSubview_(gesture_hint)
 
         idle_label = AppKit.NSTextField.labelWithString_("Unload model after")
         idle_label.setFrame_(Foundation.NSMakeRect(24, 415, 150, 24))
