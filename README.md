@@ -75,14 +75,15 @@ STT Local can also speak, using the local [Kokoro-82M](https://huggingface.co/ml
 
 Voice mode is per Claude Code session: type `/voice-mode` in a session to toggle it, or `/voice-mode on` / `/voice-mode off`. The hook handles the command itself, so it never reaches the model. Other sessions stay silent. **Stop Speaking** in the menu bar cuts off the current reply; starting a dictation or submitting a new prompt in any session does too. A newer reply replaces one still being spoken.
 
-Setting it up takes the `/voice-mode` command file, which lets Claude Code recognize and complete the command:
+To set it up, install the app as above, then run this from the checkout:
 
 ```bash
-mkdir -p ~/.claude/commands
-cp ~/repos/stt-local/integrations/claude-code/voice-mode.md ~/.claude/commands/
+.venv/bin/stt-local-speech install-claude-code
 ```
 
-and two hooks in `~/.claude/settings.json`:
+It copies the `/voice-mode` command file, which lets Claude Code recognize and complete the command, into `~/.claude/commands/`. It also adds a `Stop` and a `UserPromptSubmit` hook to `~/.claude/settings.json` that run this checkout's `stt-local-speech` by absolute path. It respects `CLAUDE_CONFIG_DIR` and leaves your other settings and hooks alone. The previous file is kept as `settings.json.bak`. Running it again is safe: after moving the checkout, it replaces the old hook paths instead of adding duplicates. New Claude Code sessions pick it up; restart any that are already running. `install-claude-code --uninstall` removes the hooks and the command file.
+
+To set it up by hand instead, copy `integrations/claude-code/voice-mode.md` into `~/.claude/commands/` and add these hooks, with the path changed to your checkout:
 
 ```json
 {

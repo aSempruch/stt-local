@@ -177,6 +177,25 @@ def _report(reply: dict[str, Any] | None) -> int:
     return 0
 
 
+def _setup_claude_code(*, uninstall: bool) -> int:
+    from . import claude_code_setup
+
+    try:
+        if uninstall:
+            messages = claude_code_setup.uninstall()
+        else:
+            messages = claude_code_setup.install()
+            messages.append(
+                "New Claude Code sessions pick this up; type /voice-mode in one to "
+                "toggle it. Restart sessions that are already running."
+            )
+    except (claude_code_setup.SetupError, OSError) as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    print("\n".join(messages))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="stt-local-speech",
@@ -188,12 +207,19 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser("stop", help="stop speaking")
     commands.add_parser("claude-stop-hook", help="Claude Code Stop hook")
     commands.add_parser("claude-prompt-hook", help="Claude Code UserPromptSubmit hook")
+    setup = commands.add_parser(
+        "install-claude-code",
+        help="add the /voice-mode command and hooks to Claude Code",
+    )
+    setup.add_argument("--uninstall", action="store_true", help="remove them instead")
     args = parser.parse_args(argv)
 
     if args.command == "claude-stop-hook":
         return claude_stop_hook()
     if args.command == "claude-prompt-hook":
         return claude_prompt_hook()
+    if args.command == "install-claude-code":
+        return _setup_claude_code(uninstall=args.uninstall)
     if args.command == "say":
         text = " ".join(args.text) if args.text else sys.stdin.read()
         return _report(_send({"command": "speak", "text": text}))
