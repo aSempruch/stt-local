@@ -19,15 +19,6 @@ class FakeKeyboard:
         self.tapped.append(key)
 
 
-class ImmediateThread:
-    def __init__(self, *, target, daemon=True):
-        self.target = target
-        self.daemon = daemon
-
-    def start(self):
-        self.target()
-
-
 def test_output_copies_utf8_then_pastes():
     run = Mock()
     keyboard = FakeKeyboard()
@@ -64,21 +55,45 @@ def test_submit_output_pastes_then_presses_enter():
     assert keyboard.tapped == ["v", "ENTER"]
 
 
-def test_sounds_launch_without_waiting():
-    popen = Mock()
-    sounds = MacSounds(popen=popen, thread_factory=ImmediateThread)
+def test_sounds_are_preloaded_and_played_in_process():
+    loaded = {}
+
+    def load(path):
+        loaded[path.name] = Mock()
+        return loaded[path.name]
+
+    sounds = MacSounds(load=load)
+    assert set(loaded) == {
+        "start-recording.wav",
+        "Ping.aiff",
+        "Pop.aiff",
+        "submit.wav",
+    }
+    assert not any(sound.play.called for sound in loaded.values())
 
     sounds.play_start()
     sounds.play_stop()
     sounds.play_cancel()
     sounds.play_submit()
 
-    assert popen.call_count == 4
-    assert popen.call_args_list[0].args[0][-1].endswith("start-recording.wav")
-    assert popen.call_args_list[1].args[0][-1].endswith("Ping.aiff")
-    assert popen.call_args_list[2].args[0][-1].endswith("Pop.aiff")
-    assert popen.call_args_list[3].args[0][-1].endswith("submit.wav")
-    assert popen.return_value.wait.call_count == 4
+    for sound in loaded.values():
+        sound.stop.assert_called_once_with()
+        sound.play.assert_called_once_with()
+
+
+def test_sounds_skip_cues_that_failed_to_load():
+    sounds = MacSounds(load=lambda _path: None)
+
+    sounds.play_start()
+
+
+def test_default_cues_load_from_disk():
+    sounds = MacSounds()
+
+    assert sounds._start_sound is not None
+    assert sounds._stop_sound is not None
+    assert sounds._cancel_sound is not None
+    assert sounds._submit_sound is not None
 
 
 def test_keystrokes_run_through_main_thread_hook_after_copy():

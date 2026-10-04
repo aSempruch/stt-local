@@ -71,13 +71,22 @@ def make_coordinator(*, audio=None, thread_factory=ImmediateThread):
     )
 
 
-def test_start_begins_capture_sound_and_worker_loading_in_order():
+def test_start_plays_cue_before_opening_microphone_then_loads_worker():
     parts = make_coordinator()
     coordinator, recorder, worker, _, _, sounds, _, _, events = parts
+    sounds.play_start.side_effect = lambda: events.append("play_start")
+    recorder.start.side_effect = lambda: events.append("recorder_start")
 
     coordinator.start_recording()
 
-    assert events == ["cancel_idle", "capture_start", "start_sound", "worker_start"]
+    assert events == [
+        "cancel_idle",
+        "capture_start",
+        "start_sound",
+        "play_start",
+        "recorder_start",
+        "worker_start",
+    ]
     worker.cancel_idle_shutdown.assert_called_once_with()
     recorder.start.assert_called_once_with()
     sounds.play_start.assert_called_once_with()
@@ -177,7 +186,8 @@ def test_microphone_start_failure_returns_to_idle():
     coordinator.start_recording()
 
     worker.ensure_started.assert_not_called()
-    sounds.play_start.assert_not_called()
+    sounds.play_start.assert_called_once_with()
+    sounds.play_cancel.assert_called_once_with()
     assert notifications == [("Recording failed", "no microphone")]
     assert coordinator.state is DictationState.IDLE
 

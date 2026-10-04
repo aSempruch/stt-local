@@ -71,9 +71,11 @@ class DictationCoordinator:
             self.event_callback("cancel_idle")
             self.worker.cancel_idle_shutdown()
             self.event_callback("capture_start")
-            self.recorder.start()
+            # Cue first: opening the microphone takes 80-180 ms, and the cue
+            # should answer the key press, not trail the waveform pill.
             self.event_callback("start_sound")
             self.sounds.play_start()
+            self.recorder.start()
             self.event_callback("worker_start")
             self.worker.ensure_started()
             ready = bool(self.worker.is_ready)
@@ -87,6 +89,8 @@ class DictationCoordinator:
                 self.recorder.abort()
             except Exception:
                 pass
+            # The start cue has already played; undo it audibly.
+            self.sounds.play_cancel()
             self._notify("Recording failed", str(exc))
             self._set_state(DictationState.IDLE)
 
