@@ -1,7 +1,11 @@
 """Installs (or removes) the Claude Code side of voice mode: the `/voice-mode`
-command file and the two hooks in the user's settings.json, pointing at this
+skill and the two hooks in the user's settings.json, pointing at this
 checkout's `stt-local-speech`. Other settings and hooks are left untouched, and
-re-running replaces this checkout's hooks instead of adding duplicates."""
+re-running replaces this checkout's hooks instead of adding duplicates.
+
+The skill only exists so Claude Code recognizes and completes `/voice-mode`;
+the prompt hook handles the command before it reaches the model. Earlier
+versions installed it as `commands/voice-mode.md`, which is removed."""
 
 from __future__ import annotations
 
@@ -9,13 +13,17 @@ import json
 import os
 import re
 import shlex
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
 
-COMMAND_SOURCE = (
-    Path(__file__).resolve().parents[2] / "integrations" / "claude-code" / "voice-mode.md"
+SKILL_SOURCE = (
+    Path(__file__).resolve().parents[2] / "integrations" / "claude-code" / "voice-mode"
 )
+SKILL_NAME = "voice-mode"
+# Present in every version of the skill and command file this app installed.
+_OURS_MARKER = "STT Local UserPromptSubmit hook"
 HOOKS = {
     "Stop": "claude-stop-hook",
     "UserPromptSubmit": "claude-prompt-hook",
@@ -91,6 +99,21 @@ def update_settings(
     return settings
 
 
+def _is_our_file(path: Path) -> bool:
+    try:
+        return _OURS_MARKER in path.read_text()
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
+def _skill_dir(config_dir: Path) -> Path:
+    return config_dir / "skills" / SKILL_NAME
+
+
+def _legacy_command(config_dir: Path) -> Path:
+    return config_dir / "commands" / f"{SKILL_NAME}.md"
+
+
 def _read_settings(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -125,7 +148,7 @@ def _write_settings(
 def install(
     config_dir: Path | None = None,
     executable: Path | None = None,
-    command_source: Path = COMMAND_SOURCE,
+    skill_source: Path = SKILL_SOURCE,
 ) -> list[str]:
     config_dir = config_dir or claude_config_dir()
     executable = executable or speech_executable()
@@ -133,18 +156,29 @@ def install(
         raise SetupError(
             f"{executable} does not exist; run ./scripts/install-launch-agent.sh first"
         )
-    if not command_source.exists():
-        raise SetupError(f"{command_source} is missing from this checkout")
+    if not (skill_source / "SKILL.md").exists():
+        raise SetupError(f"{skill_source / 'SKILL.md'} is missing from this checkout")
+    skill = _skill_dir(config_dir)
+    if skill.exists() and not _is_our_file(skill / "SKILL.md"):
+        raise SetupError(f"{skill} already exists and is not STT Local's; not replacing it")
     settings_path = config_dir / "settings.json"
     original = _read_settings(settings_path)
     settings = update_settings(original, executable, install=True)
-    _write_text(config_dir / "commands" / "voice-mode.md", command_source.read_text())
+    if skill.exists():
+        shutil.rmtree(skill)
+    skill.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(skill_source, skill)
+    messages = [f"Installed the /voice-mode skill in {skill}"]
+    legacy = _legacy_command(config_dir)
+    if _is_our_file(legacy):
+        legacy.unlink()
+        messages.append(f"Removed the older {legacy}")
     changed = _write_settings(settings_path, settings, original)
-    return [
-        f"Installed the /voice-mode command in {config_dir / 'commands'}",
+    messages.append(
         f"{'Added' if changed else 'Kept'} the Stop and UserPromptSubmit hooks in "
-        f"{settings_path}, running {executable}",
-    ]
+        f"{settings_path}, running {executable}"
+    )
+    return messages
 
 
 def uninstall(config_dir: Path | None = None) -> list[str]:
@@ -156,8 +190,12 @@ def uninstall(config_dir: Path | None = None) -> list[str]:
         settings = update_settings(original, None, install=False)
         if _write_settings(settings_path, settings, original):
             messages.append(f"Removed the STT Local hooks from {settings_path}")
-    command = config_dir / "commands" / "voice-mode.md"
-    if command.exists():
-        command.unlink()
-        messages.append(f"Removed {command}")
+    skill = _skill_dir(config_dir)
+    if _is_our_file(skill / "SKILL.md"):
+        shutil.rmtree(skill)
+        messages.append(f"Removed {skill}")
+    legacy = _legacy_command(config_dir)
+    if _is_our_file(legacy):
+        legacy.unlink()
+        messages.append(f"Removed {legacy}")
     return messages or ["Nothing to remove"]

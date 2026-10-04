@@ -1,0 +1,4 @@
+# Codex also reads skills from ~/.agents/skills. This one is only a Claude Code
+# slash command, so Codex should never pick it up on its own.
+policy:
+  allow_implicit_invocation: false

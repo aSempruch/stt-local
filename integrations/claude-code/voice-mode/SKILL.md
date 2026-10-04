@@ -1,4 +1,5 @@
 ---
+name: voice-mode
 description: Read this session's replies aloud with STT Local (on, off, or toggle)
 argument-hint: "[on|off]"
 disable-model-invocation: true

@@ -25,7 +25,7 @@ def our_commands(settings):
     }
 
 
-def test_install_into_empty_config_adds_command_and_both_hooks(tmp_path, executable):
+def test_install_into_empty_config_adds_skill_and_both_hooks(tmp_path, executable):
     config = tmp_path / "claude"
 
     install(config, executable)
@@ -36,9 +36,14 @@ def test_install_into_empty_config_adds_command_and_both_hooks(tmp_path, executa
     }
     hook = read_settings(config)["hooks"]["Stop"][0]["hooks"][0]
     assert hook["type"] == "command" and hook["timeout"] == 5
-    command = (config / "commands" / "voice-mode.md").read_text()
-    assert command == claude_code_setup.COMMAND_SOURCE.read_text()
-    assert "disable-model-invocation: true" in command
+    skill = config / "skills" / "voice-mode"
+    source = claude_code_setup.SKILL_SOURCE
+    assert (skill / "SKILL.md").read_text() == (source / "SKILL.md").read_text()
+    assert "name: voice-mode" in (skill / "SKILL.md").read_text()
+    assert "disable-model-invocation: true" in (skill / "SKILL.md").read_text()
+    assert "allow_implicit_invocation: false" in (
+        skill / "agents" / "openai.yaml"
+    ).read_text()
 
 
 def test_install_keeps_other_settings_and_hooks(tmp_path, executable):
@@ -104,7 +109,48 @@ def test_invalid_settings_are_left_alone(tmp_path, executable):
         install(config, executable)
 
     assert (config / "settings.json").read_text() == "{not json"
-    assert not (config / "commands").exists()
+    assert not (config / "skills").exists()
+
+
+def test_install_replaces_the_older_command_file(tmp_path, executable):
+    config = tmp_path / "claude"
+    legacy = config / "commands" / "voice-mode.md"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("The STT Local UserPromptSubmit hook normally intercepts...")
+    unrelated = config / "commands" / "other.md"
+    unrelated.write_text("mine")
+
+    messages = install(config, executable)
+
+    assert not legacy.exists() and unrelated.exists()
+    assert any("Removed the older" in message for message in messages)
+
+
+def test_install_refuses_to_replace_someone_elses_voice_mode_skill(
+    tmp_path, executable
+):
+    config = tmp_path / "claude"
+    skill = config / "skills" / "voice-mode" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: voice-mode\n---\nMy own thing.")
+
+    with pytest.raises(SetupError, match="not STT Local's"):
+        install(config, executable)
+
+    assert skill.read_text().endswith("My own thing.")
+    assert not (config / "settings.json").exists()
+
+
+def test_skills_directory_may_be_a_symlink(tmp_path, executable):
+    shared = tmp_path / "agents" / "skills"
+    shared.mkdir(parents=True)
+    config = tmp_path / "claude"
+    config.mkdir()
+    (config / "skills").symlink_to(shared)
+
+    install(config, executable)
+
+    assert (shared / "voice-mode" / "SKILL.md").exists()
 
 
 def test_missing_executable_points_at_the_installer(tmp_path):
@@ -124,7 +170,7 @@ def test_uninstall_removes_only_this_apps_pieces(tmp_path, executable):
     uninstall(config)
 
     assert read_settings(config) == {"model": "opus", "hooks": {"Stop": [other]}}
-    assert not (config / "commands" / "voice-mode.md").exists()
+    assert not (config / "skills" / "voice-mode").exists()
     assert uninstall(config) == ["Nothing to remove"]
 
 

@@ -81,9 +81,9 @@ To set it up, install the app as above, then run this from the checkout:
 .venv/bin/stt-local-speech install-claude-code
 ```
 
-It copies the `/voice-mode` command file, which lets Claude Code recognize and complete the command, into `~/.claude/commands/`. It also adds a `Stop` and a `UserPromptSubmit` hook to `~/.claude/settings.json` that run this checkout's `stt-local-speech` by absolute path. It respects `CLAUDE_CONFIG_DIR` and leaves your other settings and hooks alone. The previous file is kept as `settings.json.bak`. Running it again is safe: after moving the checkout, it replaces the old hook paths instead of adding duplicates. New Claude Code sessions pick it up; restart any that are already running. `install-claude-code --uninstall` removes the hooks and the command file.
+It copies the `/voice-mode` skill, which lets Claude Code recognize and complete the command, into `~/.claude/skills/voice-mode/`, and removes the `~/.claude/commands/voice-mode.md` that earlier versions used. The skill has model invocation disabled for Claude Code, and its `agents/openai.yaml` does the same for Codex, in case your Claude Code skills directory is shared with Codex's `~/.agents/skills`. It also adds a `Stop` and a `UserPromptSubmit` hook to `~/.claude/settings.json` that run this checkout's `stt-local-speech` by absolute path. It respects `CLAUDE_CONFIG_DIR` and leaves your other settings and hooks alone. The previous file is kept as `settings.json.bak`. Running it again is safe: after moving the checkout, it replaces the old hook paths instead of adding duplicates. New Claude Code sessions pick it up; restart any that are already running. `install-claude-code --uninstall` removes the hooks and the skill.
 
-To set it up by hand instead, copy `integrations/claude-code/voice-mode.md` into `~/.claude/commands/` and add these hooks, with the path changed to your checkout:
+To set it up by hand instead, copy the `integrations/claude-code/voice-mode` directory into `~/.claude/skills/` and add these hooks, with the path changed to your checkout:
 
 ```json
 {
