@@ -71,7 +71,7 @@ While dictation is active, a small floating pill appears at the bottom centre of
 
 ## Reading Claude Code replies aloud
 
-STT Local can also speak, using the local [Kokoro-82M](https://huggingface.co/mlx-community/Kokoro-82M-bf16) voice through MLX. It works like the Whisper model: a separate worker loads on the first request (about 2.5 seconds, plus a one-time download of about 370 MB), stays warm for follow-ups (about 0.4 seconds to the first sentence), and exits after the **Unload model after** delay. Replies are spoken a sentence at a time, so playback starts before the whole reply is rendered.
+STT Local can also speak, using the local [Kokoro-82M](https://huggingface.co/mlx-community/Kokoro-82M-bf16) voice through MLX. It works like the Whisper model: a separate worker loads on the first request (about 2.5 seconds, plus a one-time download of about 370 MB), stays warm for follow-ups (about 0.4 seconds to the first sentence), and exits after the **Unload model after** delay. Replies are rendered a sentence at a time and played as one continuous stream, so playback starts before the whole reply is rendered and sentences follow each other with a short fixed pause. The output device opens only while a reply is playing.
 
 Voice mode is per Claude Code session: type `/voice-mode` in a session to toggle it, or `/voice-mode on` / `/voice-mode off`. The hook handles the command itself, so it never reaches the model. Other sessions stay silent. **Stop Speaking** in the menu bar cuts off the current reply; starting a dictation or submitting a new prompt in any session does too. A newer reply replaces one still being spoken.
 

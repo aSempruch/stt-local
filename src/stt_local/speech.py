@@ -2,15 +2,12 @@ from __future__ import annotations
 
 import multiprocessing
 import re
-import shutil
 import subprocess
-import tempfile
+import sys
 import threading
 import traceback
-import wave
 from collections.abc import Callable
 from multiprocessing.connection import Connection
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -38,23 +35,40 @@ def split_sentences(text: str) -> list[str]:
     return [sentence for sentence in sentences if sentence]
 
 
-def write_wav(path: Path, samples: np.ndarray, sample_rate: int) -> None:
-    pcm = (np.clip(np.asarray(samples, dtype=np.float32), -1.0, 1.0) * 32767).astype(
-        "<i2"
-    )
-    with wave.open(str(path), "wb") as handle:
-        handle.setnchannels(1)
-        handle.setsampwidth(2)
-        handle.setframerate(sample_rate)
-        handle.writeframes(pcm.tobytes())
+# Kokoro pads each sentence with its own silence (about 0.3 s before, 0.45 s
+# after), so sentences were 0.75 s apart before any playback overhead. It is
+# trimmed and replaced with a fixed pause picked by ear.
+SILENCE_LEVEL = 0.01  # full-scale amplitude below which output counts as silence
+EDGE_SECONDS = 0.02  # kept beyond the audible edges so soft consonants survive
+SENTENCE_PAUSE_SECONDS = 0.4
+# A player normally exits once its audio drains; past this much longer than the
+# audio it was given, it is presumed stuck in CoreAudio and killed.
+PLAYER_DRAIN_GRACE_SECONDS = 10.0
 
 
-def start_player(path: Path) -> Any:
+def shape_pauses(samples: np.ndarray, sample_rate: int) -> np.ndarray:
+    """Trim a sentence's edge silence and end it with the sentence pause."""
+    samples = np.asarray(samples, dtype=np.float32)
+    loud = np.flatnonzero(np.abs(samples) > SILENCE_LEVEL)
+    if not loud.size:
+        return samples[:0]
+    edge = int(sample_rate * EDGE_SECONDS)
+    start, end = max(0, loud[0] - edge), min(len(samples), loud[-1] + 1 + edge)
+    # The pause spans this sentence's trailing edge and the next one's leading edge.
+    pad = max(0, int(sample_rate * SENTENCE_PAUSE_SECONDS) - 2 * edge)
+    return np.concatenate([samples[start:end], np.zeros(pad, np.float32)])
+
+
+def to_pcm(samples: np.ndarray) -> bytes:
+    return (np.clip(samples, -1.0, 1.0) * 32767).astype("<i2").tobytes()
+
+
+def start_player(sample_rate: int) -> Any:
+    """One player per reply, fed 16-bit PCM on stdin (see player.py)."""
     return subprocess.Popen(
-        ["afplay", str(path)],
-        stdin=subprocess.DEVNULL,
+        [sys.executable, "-m", "stt_local.player", str(sample_rate)],
+        stdin=subprocess.PIPE,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
     )
 
 
@@ -144,8 +158,7 @@ class SpeechManager:
         context: Any | None = None,
         timer_factory: Callable[[float, Callable[[], None]], Any] = threading.Timer,
         thread_factory: Callable[..., Any] = threading.Thread,
-        player_factory: Callable[[Path], Any] = start_player,
-        clip_directory: Path | None = None,
+        player_factory: Callable[[int], Any] = start_player,
     ) -> None:
         self.model_name = model_name
         self.voice = voice
@@ -158,7 +171,6 @@ class SpeechManager:
         self._timer_factory = timer_factory
         self._thread_factory = thread_factory
         self._player_factory = player_factory
-        self._clip_directory = clip_directory
         self._state_lock = threading.RLock()
         self._request_lock = threading.Lock()
         self._process: Any | None = None
@@ -167,7 +179,6 @@ class SpeechManager:
         self._idle_timer: Any | None = None
         self._player: Any | None = None
         self._generation = 0
-        self._clip_count = 0
 
     @property
     def idle_seconds(self) -> float:
@@ -235,10 +246,14 @@ class SpeechManager:
             connection = self._connection
         if connection is None:
             raise SpeechError("The voice worker connection is unavailable")
+        # Started before synthesis so its startup overlaps the first sentence.
+        player = self._start_player(generation)
+        if player is None:
+            return
         connection.send({"command": "speak", "text": text, "voice": self.voice()})
         stopped = False
         error: str | None = None
-        previous: tuple[Any, Path] | None = None
+        seconds = 0.0
         try:
             while True:
                 message = connection.recv()
@@ -255,51 +270,55 @@ class SpeechManager:
                     break
                 if kind != "audio" or stopped:
                     continue
-                clip = self._write_clip(message["samples"])
-                self._finish_clip(previous)
-                previous = None
-                player = self._start_clip(generation, clip)
-                if player is None:
-                    clip.unlink(missing_ok=True)
+                pcm = to_pcm(shape_pauses(message["samples"], self.sample_rate))
+                if self._feed(generation, player, pcm):
+                    seconds += len(pcm) / 2 / self.sample_rate
+                else:
                     connection.send({"command": "stop"})
                     stopped = True
-                else:
-                    previous = (player, clip)
         finally:
-            self._finish_clip(previous)
+            returncode = self._finish_player(player, seconds)
         if error is not None:
             raise SpeechError(error)
+        if returncode and self._is_current(generation):
+            raise SpeechError(f"Speech playback failed (player exit status {returncode})")
 
-    def _write_clip(self, samples: Any) -> Path:
-        with self._state_lock:
-            if self._clip_directory is None:
-                self._clip_directory = Path(
-                    tempfile.mkdtemp(prefix="stt-local-speech-")
-                )
-            self._clip_count += 1
-            path = self._clip_directory / f"clip-{self._clip_count}.wav"
-        write_wav(path, samples, self.sample_rate)
-        return path
-
-    def _start_clip(self, generation: int, clip: Path) -> Any | None:
+    def _start_player(self, generation: int) -> Any | None:
         # Checked under the lock that stop() takes, so a stop can never be
-        # followed by a clip that was about to start.
+        # followed by a player that was about to start.
         with self._state_lock:
             if generation != self._generation:
                 return None
-            self._player = self._player_factory(clip)
+            self._player = self._player_factory(self.sample_rate)
             return self._player
 
-    def _finish_clip(self, playing: tuple[Any, Path] | None) -> None:
-        """Wait for a clip to end (or be stopped), then delete it."""
-        if playing is None:
-            return
-        player, clip = playing
-        player.wait()
-        clip.unlink(missing_ok=True)
+    def _feed(self, generation: int, player: Any, pcm: bytes) -> bool:
+        """Queue audio for the player; False once the reply was stopped or the
+        player is gone. Blocks while the player is a pipe-full ahead."""
+        if not self._is_current(generation):
+            return False
+        try:
+            player.stdin.write(pcm)
+            player.stdin.flush()
+        except (BrokenPipeError, OSError, ValueError):
+            return False
+        return True
+
+    def _finish_player(self, player: Any, seconds: float) -> int | None:
+        """Let the player drain (or wait out its termination); returns its exit status."""
+        try:
+            player.stdin.close()
+        except (BrokenPipeError, OSError):
+            pass
+        try:
+            player.wait(timeout=seconds + PLAYER_DRAIN_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            player.kill()
+            player.wait()
         with self._state_lock:
             if self._player is player:
                 self._player = None
+        return player.returncode
 
     def ensure_started(self) -> None:
         self.cancel_idle_shutdown()
@@ -354,10 +373,6 @@ class SpeechManager:
 
     def close(self) -> None:
         self.shutdown()
-        with self._state_lock:
-            directory = self._clip_directory
-        if directory is not None:
-            shutil.rmtree(directory, ignore_errors=True)
 
     def _stop_worker(self, *, force: bool = False) -> None:
         with self._state_lock:
