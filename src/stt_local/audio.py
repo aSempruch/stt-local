@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import sys
 import threading
+import time
 from collections import deque
 from collections.abc import Callable
 from typing import Any
@@ -32,6 +34,42 @@ def _refresh_sounddevice() -> None:
     sd._initialize()
 
 
+def format_os_status(code: int) -> str:
+    """Show a CoreAudio OSStatus as its four-char code when it has one."""
+    raw = (code & 0xFFFFFFFF).to_bytes(4, "big")
+    if all(32 <= byte < 127 for byte in raw):
+        return f"'{raw.decode('ascii')}'"
+    return str(code)
+
+
+def _describe_portaudio_failure() -> str:
+    # PortAudio reports most CoreAudio start failures as paInternalError
+    # (-9986) but keeps the underlying OSStatus as the last host error.
+    try:
+        import sounddevice as sd
+
+        details = []
+        info = sd._lib.Pa_GetLastHostErrorInfo()
+        if info.hostApiType == sd._lib.paCoreAudio and info.errorCode:
+            details.append(f"CoreAudio {format_os_status(info.errorCode)}")
+        name = sd.query_devices(kind="input")["name"]
+        details.append(f'input "{name}"')
+        return ", ".join(details)
+    except Exception:
+        return ""
+
+
+def _log_stderr(message: str) -> None:
+    try:
+        print(f"STT Local: {message}", file=sys.stderr, flush=True)
+    except Exception:
+        pass
+
+
+class MicrophoneStartError(RuntimeError):
+    pass
+
+
 def _make_input_stream(**kwargs: Any) -> Any:
     import sounddevice as sd
 
@@ -48,6 +86,9 @@ class AudioRecorder:
         thread_factory: Callable[..., Any] = threading.Thread,
         start_timeout: float = 5.0,
         stop_timeout: float = STREAM_STOP_TIMEOUT_SECONDS,
+        retry_delay: float = 0.15,
+        describe_failure: Callable[[], str] = _describe_portaudio_failure,
+        log: Callable[[str], None] = _log_stderr,
     ) -> None:
         self.sample_rate = sample_rate
         self._stream_factory = stream_factory
@@ -55,6 +96,9 @@ class AudioRecorder:
         self._thread_factory = thread_factory
         self._start_timeout = start_timeout
         self._stop_timeout = stop_timeout
+        self._retry_delay = retry_delay
+        self._describe_failure = describe_failure
+        self._log = log
         self._lock = threading.Lock()
         self._stream: Any | None = None
         self._frames: list[np.ndarray] | None = None
@@ -100,18 +144,7 @@ class AudioRecorder:
         def open_stream() -> None:
             nonlocal abandoned
             try:
-                self._refresh_devices()
-                stream = self._stream_factory(
-                    samplerate=self.sample_rate,
-                    channels=1,
-                    dtype="float32",
-                    callback=capture,
-                )
-                try:
-                    stream.start()
-                except Exception:
-                    stream.close()
-                    raise
+                stream = self._open_with_retry(capture)
                 with handoff_lock:
                     close_abandoned = abandoned
                     if not close_abandoned:
@@ -146,6 +179,40 @@ class AudioRecorder:
             self._stream = stream
             self._frames = frames
             self._levels = levels
+
+    def _open_once(self, capture: Callable[..., None]) -> Any:
+        self._refresh_devices()
+        stream = self._stream_factory(
+            samplerate=self.sample_rate,
+            channels=1,
+            dtype="float32",
+            callback=capture,
+        )
+        try:
+            stream.start()
+        except Exception:
+            stream.close()
+            raise
+        return stream
+
+    def _open_with_retry(self, capture: Callable[..., None]) -> Any:
+        # CoreAudio briefly refuses to start input while a device is changing
+        # (a Bluetooth headset switching profiles, a meeting app taking the
+        # microphone). A fresh device list a moment later usually works.
+        try:
+            return self._open_once(capture)
+        except Exception as exc:
+            details = self._describe_failure()
+            suffix = f" ({details})" if details else ""
+            self._log(f"microphone failed to start, retrying: {exc}{suffix}")
+        time.sleep(self._retry_delay)
+        try:
+            return self._open_once(capture)
+        except Exception as exc:
+            details = self._describe_failure()
+            if not details:
+                raise
+            raise MicrophoneStartError(f"{exc} ({details})") from exc
 
     def stop(self) -> np.ndarray:
         stream, frames = self._detach()

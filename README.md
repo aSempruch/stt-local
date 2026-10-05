@@ -186,6 +186,7 @@ The persisted configuration is `~/Library/Application Support/STT Local/config.j
 ## Troubleshooting
 
 - **No sound or recording:** Verify Microphone permission and the current macOS default input device.
+- **"Recording failed: Error starting stream … [PaErrorCode -9986]":** CoreAudio refused to start the microphone, usually while the input device was changing (a Bluetooth headset switching modes, or a meeting app taking the microphone). STT Local retries once automatically, so this notification means the retry failed too. The message ends with the underlying CoreAudio code (such as `'nope'`) and the input device name; retried failures that recovered are logged to `/tmp/stt-local.stderr.log`.
 - **Microphone opening times out:** A CoreAudio device refresh can stall after a stuck audio stream. STT Local automatically restarts once the current dictation workflow returns to idle; the next recording may need to reload the model.
 - **Text copies but does not paste:** Grant Accessibility permission to `.venv/bin/python`.
 - **Nothing is copied or pasted after transcribing:** Look for an STT Local notification or a warning triangle in the menu bar; the menu shows the last error until the next dictation. Errors are also written to `/tmp/stt-local.stderr.log`.

@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from stt_local.audio import AudioRecorder, trim_trailing_silence
+from stt_local.audio import AudioRecorder, format_os_status, trim_trailing_silence
 
 
 def test_trim_removes_only_trailing_silence():
@@ -144,6 +144,86 @@ def test_start_times_out_without_blocking_the_app():
             break
         time.sleep(0.01)
     assert finished.is_set()
+
+
+class FailingStartStream(FakeStream):
+    def start(self):
+        raise RuntimeError("Error starting stream: Internal PortAudio error")
+
+
+def test_start_retries_once_after_a_transient_microphone_failure():
+    streams = []
+    logged = []
+
+    def stream_factory(**kwargs):
+        cls = FailingStartStream if not streams else FakeStream
+        stream = cls(kwargs["callback"])
+        streams.append(stream)
+        return stream
+
+    refresh = Mock()
+    recorder = AudioRecorder(
+        stream_factory=stream_factory,
+        refresh_devices=refresh,
+        describe_failure=lambda: "CoreAudio 'nope', input \"Headset\"",
+        log=logged.append,
+        retry_delay=0,
+    )
+
+    recorder.start()
+
+    assert refresh.call_count == 2
+    assert streams[0].closed
+    assert streams[1].started
+    assert recorder.is_recording
+    assert len(logged) == 1
+    assert "retrying" in logged[0]
+    assert "CoreAudio 'nope'" in logged[0]
+
+
+def test_start_reports_core_audio_details_when_retry_also_fails():
+    def stream_factory(**kwargs):
+        return FailingStartStream(kwargs["callback"])
+
+    recorder = AudioRecorder(
+        stream_factory=stream_factory,
+        refresh_devices=Mock(),
+        describe_failure=lambda: "CoreAudio 'nope', input \"Headset\"",
+        log=Mock(),
+        retry_delay=0,
+    )
+
+    with pytest.raises(RuntimeError) as caught:
+        recorder.start()
+
+    message = str(caught.value)
+    assert message.startswith("Error starting stream: Internal PortAudio error")
+    assert "CoreAudio 'nope', input \"Headset\"" in message
+    assert isinstance(caught.value.__cause__, RuntimeError)
+    assert not recorder.is_recording
+
+
+def test_start_failure_message_is_unchanged_without_details():
+    def stream_factory(**kwargs):
+        raise RuntimeError("no microphone")
+
+    recorder = AudioRecorder(
+        stream_factory=stream_factory,
+        refresh_devices=Mock(),
+        describe_failure=lambda: "",
+        log=Mock(),
+        retry_delay=0,
+    )
+
+    with pytest.raises(RuntimeError, match="^no microphone$"):
+        recorder.start()
+
+
+def test_format_os_status_shows_four_char_codes_and_plain_numbers():
+    assert format_os_status(0x6E6F7065) == "'nope'"
+    assert format_os_status(0x21646576) == "'!dev'"
+    assert format_os_status(-10851) == "-10851"
+    assert format_os_status(-1) == "-1"
 
 
 class HangingStream(FakeStream):
