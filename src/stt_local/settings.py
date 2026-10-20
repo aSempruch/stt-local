@@ -314,7 +314,7 @@ class SettingsWindowController:
         content = window.contentView()
 
         gesture_rows = [
-            ("Long press to cancel", "selectLongPress:", "long_press_popup", 535),
+            ("Long press to paste", "selectLongPress:", "long_press_popup", 535),
             ("Double-tap window", "selectDoubleTap:", "double_tap_popup", 500),
         ]
         for title, action, attribute, y in gesture_rows:
@@ -330,8 +330,9 @@ class SettingsWindowController:
             setattr(controller, attribute, row_popup)
 
         gesture_hint = AppKit.NSTextField.wrappingLabelWithString_(
-            "Right Command timing. Holding this long cancels; a second tap "
-            "within the window submits, and a single tap stops once it passes."
+            "Right Command timing. Holding this long pastes without Return; a "
+            "second tap within the window cancels, and a single tap submits "
+            "once it passes."
         )
         gesture_hint.setFont_(AppKit.NSFont.systemFontOfSize_(11))
         gesture_hint.setTextColor_(AppKit.NSColor.secondaryLabelColor())

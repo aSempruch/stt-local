@@ -293,6 +293,7 @@ def build_app() -> Any:
         submit=lambda: dispatch_action(
             lambda: coordinator.stop_recording(submit=True)
         ),
+        paste=lambda: dispatch_action(coordinator.stop_recording),
         cancel=lambda: dispatch_action(coordinator.cancel),
         double_tap_seconds=lambda: settings_model.double_tap_seconds,
         long_press_seconds=lambda: settings_model.long_press_seconds,
