@@ -1,5 +1,5 @@
 """Installs (or removes) the Claude Code side of voice mode: the `/voice-mode`
-skill and the two hooks in the user's settings.json, pointing at this
+skill and the three hooks in the user's settings.json, pointing at this
 checkout's `stt-local-speech`. Other settings and hooks are left untouched, and
 re-running replaces this checkout's hooks instead of adding duplicates.
 
@@ -27,9 +27,10 @@ _OURS_MARKER = "STT Local UserPromptSubmit hook"
 HOOKS = {
     "Stop": "claude-stop-hook",
     "UserPromptSubmit": "claude-prompt-hook",
+    "MessageDisplay": "claude-display-hook",
 }
 HOOK_TIMEOUT_SECONDS = 5
-_OUR_HOOK = re.compile(r"stt-local-speech['\"]?\s+claude-(?:stop|prompt)-hook\b")
+_OUR_HOOK = re.compile(r"stt-local-speech['\"]?\s+claude-(?:stop|prompt|display)-hook\b")
 
 
 class SetupError(RuntimeError):
@@ -175,7 +176,7 @@ def install(
         messages.append(f"Removed the older {legacy}")
     changed = _write_settings(settings_path, settings, original)
     messages.append(
-        f"{'Added' if changed else 'Kept'} the Stop and UserPromptSubmit hooks in "
+        f"{'Added' if changed else 'Kept'} the Stop, UserPromptSubmit and MessageDisplay hooks in "
         f"{settings_path}, running {executable}"
     )
     return messages

@@ -83,7 +83,7 @@ To set it up, install the app as above, then run this from the checkout:
 .venv/bin/stt-local-speech install-claude-code
 ```
 
-It copies the `/voice-mode` skill, which lets Claude Code recognize and complete the command, into `~/.claude/skills/voice-mode/`, and removes the `~/.claude/commands/voice-mode.md` that earlier versions used. The skill has model invocation disabled for Claude Code, and its `agents/openai.yaml` does the same for Codex, in case your Claude Code skills directory is shared with Codex's `~/.agents/skills`. It also adds a `Stop` and a `UserPromptSubmit` hook to `~/.claude/settings.json` that run this checkout's `stt-local-speech` by absolute path. It respects `CLAUDE_CONFIG_DIR` and leaves your other settings and hooks alone. The previous file is kept as `settings.json.bak`. Running it again is safe: after moving the checkout, it replaces the old hook paths instead of adding duplicates. New Claude Code sessions pick it up; restart any that are already running. `install-claude-code --uninstall` removes the hooks and the skill.
+It copies the `/voice-mode` skill, which lets Claude Code recognize and complete the command, into `~/.claude/skills/voice-mode/`, and removes the `~/.claude/commands/voice-mode.md` that earlier versions used. The skill has model invocation disabled for Claude Code, and its `agents/openai.yaml` does the same for Codex, in case your Claude Code skills directory is shared with Codex's `~/.agents/skills`. It also adds `Stop`, `UserPromptSubmit` and `MessageDisplay` hooks to `~/.claude/settings.json` that run this checkout's `stt-local-speech` by absolute path. It respects `CLAUDE_CONFIG_DIR` and leaves your other settings and hooks alone. The previous file is kept as `settings.json.bak`. Running it again is safe: after moving the checkout, it replaces the old hook paths instead of adding duplicates. New Claude Code sessions pick it up; restart any that are already running. `install-claude-code --uninstall` removes the hooks and the skill.
 
 To set it up by hand instead, copy the `integrations/claude-code/voice-mode` directory into `~/.claude/skills/` and add these hooks, with the path changed to your checkout:
 
@@ -93,12 +93,14 @@ To set it up by hand instead, copy the `integrations/claude-code/voice-mode` dir
     "Stop": [{"hooks": [{"type": "command", "timeout": 5,
       "command": "~/repos/stt-local/.venv/bin/stt-local-speech claude-stop-hook"}]}],
     "UserPromptSubmit": [{"hooks": [{"type": "command", "timeout": 5,
-      "command": "~/repos/stt-local/.venv/bin/stt-local-speech claude-prompt-hook"}]}]
+      "command": "~/repos/stt-local/.venv/bin/stt-local-speech claude-prompt-hook"}]}],
+    "MessageDisplay": [{"hooks": [{"type": "command", "timeout": 5,
+      "command": "~/repos/stt-local/.venv/bin/stt-local-speech claude-display-hook"}]}]
   }
 }
 ```
 
-In a voice session, the prompt hook asks Claude to end each reply with a short `<spoken>…</spoken>` block written for listening, and the stop hook speaks only that block. A reply without one has its first prose paragraph read instead. Voice sessions are remembered as empty files named after the session ID in `~/Library/Application Support/STT Local/voice-sessions/`, so a resumed session keeps its setting; files untouched for 30 days are cleaned up. The hooks never block Claude Code, and do nothing when STT Local is not running. To show voice mode in a custom Claude Code status line, check whether the file named by the status line input's `session_id` exists in that directory.
+In a voice session, the prompt hook asks Claude to begin its final reply with a short `<spoken>…</spoken>` block written for listening. The display hook (Claude Code 2.1.152 or later) speaks that block as soon as it has streamed, so you hear it while the rest of the reply is still being written; only the block is read. The stop hook speaks a block the display hook missed, such as one at the end of a reply, and a reply without one has its first prose paragraph read instead. Voice sessions are remembered as files named after the session ID in `~/Library/Application Support/STT Local/voice-sessions/`, so a resumed session keeps its setting; files untouched for 30 days are cleaned up. The hooks never block Claude Code, and do nothing when STT Local is not running. To show voice mode in a custom Claude Code status line, check whether the file named by the status line input's `session_id` exists in that directory.
 
 `stt-local-speech` also works on its own: `say "text"` (or text on standard input) and `stop`. It talks to the app over a private Unix socket at `~/Library/Application Support/STT Local/control.sock`. Set a different Kokoro voice, such as `am_michael` or `bf_emma`, with `speech_voice` in `config.json`.
 

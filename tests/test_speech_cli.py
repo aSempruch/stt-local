@@ -3,16 +3,7 @@ import json
 import os
 
 from stt_local import speech_cli
-from stt_local.speech_cli import first_paragraph, plain_speech, spoken_text
-
-
-def test_spoken_block_is_preferred_and_last_one_wins():
-    reply = (
-        "## Changes\n\nEdited `app.py`.\n\n<spoken>Draft.</spoken>\n\n"
-        "<spoken>I fixed the **menu** bug and the tests pass.</spoken>"
-    )
-
-    assert spoken_text(reply) == "I fixed the menu bug and the tests pass."
+from stt_local.speech_cli import first_paragraph, plain_speech
 
 
 def test_plain_speech_strips_markdown():
@@ -54,6 +45,7 @@ def run_hook(monkeypatch, capsys, tmp_path, hook, payload, reply=None):
     hooks = {
         "claude-stop-hook": speech_cli.claude_stop_hook,
         "claude-prompt-hook": speech_cli.claude_prompt_hook,
+        "claude-display-hook": speech_cli.claude_display_hook,
     }
     assert hooks[hook](tmp_path) == 0
     out = capsys.readouterr().out
@@ -135,6 +127,118 @@ def test_stop_hook_speaks_only_in_voice_sessions(monkeypatch, capsys, tmp_path):
 
     assert sent == [{"command": "speak", "text": "All set."}]
     assert out is None
+
+
+def test_stop_hook_speaks_the_last_block(monkeypatch, capsys, tmp_path):
+    (tmp_path / SESSION).touch()
+    reply = (
+        "## Changes\n\nEdited `app.py`.\n\n<spoken>Draft.</spoken>\n\n"
+        "<spoken>I fixed the **menu** bug and the tests pass.</spoken>"
+    )
+
+    sent = stop(monkeypatch, capsys, tmp_path, reply)
+
+    assert sent == [
+        {"command": "speak", "text": "I fixed the menu bug and the tests pass."}
+    ]
+
+
+def test_stop_hook_reads_the_opening_of_a_reply_without_a_block(
+    monkeypatch, capsys, tmp_path
+):
+    (tmp_path / SESSION).touch()
+
+    sent = stop(monkeypatch, capsys, tmp_path, "## Done\n\nAll fixed. Tests pass.\n\nMore.")
+
+    assert sent == [{"command": "speak", "text": "All fixed. Tests pass."}]
+
+
+def display(monkeypatch, capsys, tmp_path, delta, message="m1", prompt_id="p1", **extra):
+    payload = {
+        "session_id": SESSION,
+        "prompt_id": prompt_id,
+        "message_id": message,
+        "delta": delta,
+        **extra,
+    }
+    sent, out = run_hook(monkeypatch, capsys, tmp_path, "claude-display-hook", payload)
+    assert out is None  # The text is displayed unchanged.
+    return sent
+
+
+def stop(monkeypatch, capsys, tmp_path, reply, prompt_id="p1"):
+    payload = {
+        "session_id": SESSION,
+        "prompt_id": prompt_id,
+        "last_assistant_message": reply,
+    }
+    sent, _ = run_hook(monkeypatch, capsys, tmp_path, "claude-stop-hook", payload)
+    return sent
+
+
+def test_display_hook_speaks_a_block_as_soon_as_it_streams(
+    monkeypatch, capsys, tmp_path
+):
+    (tmp_path / SESSION).touch()
+
+    sent = display(monkeypatch, capsys, tmp_path, "<spoken>Fixed the **bug**.</spoken>\n\n")
+    assert sent == [{"command": "speak", "text": "Fixed the bug."}]
+
+    assert display(monkeypatch, capsys, tmp_path, "## Details\n") == []
+    reply = "<spoken>Fixed the **bug**.</spoken>\n\n## Details\n"
+    assert stop(monkeypatch, capsys, tmp_path, reply) == []
+
+
+def test_display_hook_joins_a_block_split_across_batches(monkeypatch, capsys, tmp_path):
+    (tmp_path / SESSION).touch()
+
+    assert display(monkeypatch, capsys, tmp_path, "Intro.\n<spoken>\nOne.\n") == []
+    sent = display(monkeypatch, capsys, tmp_path, "Two.\n</spoken>\nRest.\n")
+
+    assert sent == [{"command": "speak", "text": "One. Two."}]
+
+
+def test_display_hook_drops_an_unclosed_block_when_the_message_changes(
+    monkeypatch, capsys, tmp_path
+):
+    (tmp_path / SESSION).touch()
+
+    display(monkeypatch, capsys, tmp_path, "Mentions <spoken> in passing.\n")
+    sent = display(monkeypatch, capsys, tmp_path, "Later </spoken>.\n", message="m2")
+
+    assert sent == []
+
+
+def test_display_hook_is_silent_outside_voice_sessions_and_in_subagents(
+    monkeypatch, capsys, tmp_path
+):
+    assert display(monkeypatch, capsys, tmp_path, "<spoken>Hi.</spoken>\n") == []
+    assert list(tmp_path.iterdir()) == []
+
+    (tmp_path / SESSION).touch()
+    sent = display(monkeypatch, capsys, tmp_path, "<spoken>Hi.</spoken>\n", agent_id="a1")
+    assert sent == []
+
+
+def test_a_new_prompt_starts_a_new_record(monkeypatch, capsys, tmp_path):
+    (tmp_path / SESSION).touch()
+    display(monkeypatch, capsys, tmp_path, "<spoken>Same words.</spoken>\n")
+
+    # An earlier block keeps the fallback quiet within the turn...
+    assert stop(monkeypatch, capsys, tmp_path, "No block here.") == []
+
+    # ...but the next prompt's turn speaks even identical words again.
+    sent = display(monkeypatch, capsys, tmp_path, "<spoken>Same words.</spoken>\n", prompt_id="p2")
+    assert sent == [{"command": "speak", "text": "Same words."}]
+
+
+def test_hooks_do_not_recreate_a_flag_removed_mid_turn(monkeypatch, capsys, tmp_path):
+    flag = tmp_path / SESSION
+    with speech_cli.turn_record(flag, {"prompt_id": "p1"}) as record:
+        assert record is None
+
+    assert stop(monkeypatch, capsys, tmp_path, "<spoken>Hi.</spoken>") == []
+    assert not flag.exists()
 
 
 def test_hooks_ignore_unusable_session_ids(monkeypatch, capsys, tmp_path):

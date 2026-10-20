@@ -1,14 +1,22 @@
 """`stt-local-speech`: speak through the running app, and the Claude Code hooks
 that read replies aloud. Every hook path exits 0 so Claude Code is never
-blocked or shown an error because STT Local is not running."""
+blocked or shown an error because STT Local is not running.
+
+A voice session's flag file also records what was spoken during the current
+prompt's turn: the display hook speaks a `<spoken>` block as soon as it has
+streamed, and the Stop hook skips a block that was already spoken."""
 
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
+import os
 import re
 import sys
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -16,12 +24,15 @@ from .constants import VOICE_SESSIONS_DIR
 from .control import send_command
 
 VOICE_MODE_CONTEXT = (
-    "Voice mode is on: the user hears your replies through text-to-speech. "
-    "Write the reply for the terminal as usual, then end it with one "
-    "<spoken>...</spoken> block of one to three short, conversational "
-    "sentences meant to be heard: what you did or found, and anything you "
-    "need from the user. Inside the block use no markdown, code, file paths, "
-    "URLs, symbols or lists; say things the way a person would aloud."
+    "Voice mode is on: the user hears your replies through text-to-speech, "
+    "starting as soon as the spoken block has streamed, while the rest of the "
+    "reply is still being written. Begin your final reply, the one that ends "
+    "your turn, with one <spoken>...</spoken> block of one to three short, "
+    "conversational sentences meant to be heard: what you did or found, and "
+    "anything you need from the user. Then write the reply for the terminal "
+    "as usual. Put no spoken block in messages that come before tool calls. "
+    "Inside the block use no markdown, code, file paths, URLs, symbols or "
+    "lists; say things the way a person would aloud."
 )
 
 FALLBACK_LIMIT = 400
@@ -71,13 +82,6 @@ def first_paragraph(text: str, limit: int = FALLBACK_LIMIT) -> str:
     return ""
 
 
-def spoken_text(reply: str) -> str:
-    blocks = _SPOKEN_BLOCK.findall(reply)
-    if blocks:
-        return plain_speech(blocks[-1])
-    return first_paragraph(reply)
-
-
 def _send(request: dict[str, Any]) -> dict[str, Any] | None:
     try:
         return send_command(request)
@@ -120,14 +124,76 @@ def set_voice_mode(flag: Path, enabled: bool) -> None:
         flag.unlink(missing_ok=True)
 
 
+@contextmanager
+def turn_record(flag: Path, data: dict[str, Any]) -> Iterator[dict[str, Any] | None]:
+    """What has been spoken in this prompt's turn, read from the session's flag
+    file under a lock and written back afterwards. None when voice mode is off;
+    the file is never created here, so a hook can't turn voice mode back on."""
+    try:
+        fd = os.open(flag, os.O_RDWR)
+    except OSError:
+        yield None
+        return
+    with os.fdopen(fd, "r+") as file:
+        fcntl.flock(file, fcntl.LOCK_EX)
+        try:
+            record = json.loads(file.read() or "{}")
+        except ValueError:
+            record = {}
+        prompt_id = data.get("prompt_id")
+        if not isinstance(record, dict) or record.get("prompt_id") != prompt_id:
+            record = {"prompt_id": prompt_id}
+        record.setdefault("spoken", [])
+        yield record
+        file.seek(0)
+        file.truncate()
+        file.write(json.dumps(record))
+
+
+def _speak_once(record: dict[str, Any], text: str) -> None:
+    if text and text not in record["spoken"]:
+        record["spoken"].append(text)
+        _send({"command": "speak", "text": text})
+
+
+def claude_display_hook(directory: Path = VOICE_SESSIONS_DIR) -> int:
+    """Speaks each `<spoken>` block while the rest of the reply streams."""
+    data = _read_hook_input()
+    flag = session_flag(data, directory)
+    if flag is None or data.get("agent_id"):
+        return 0
+    message_id = str(data.get("message_id") or "")
+    with turn_record(flag, data) as record:
+        if record is None:
+            return 0
+        # Batches are whole lines, so a block can span several of them; keep
+        # the text from an unclosed opening tag until its batch arrives.
+        if record.get("message_id") != message_id:
+            record["message_id"], record["open"] = message_id, ""
+        text = record["open"] + str(data.get("delta") or "")
+        for block in _SPOKEN_BLOCK.findall(text):
+            _speak_once(record, plain_speech(block))
+        rest = _SPOKEN_BLOCK.sub("", text)
+        start = rest.lower().rfind("<spoken>")
+        record["open"] = rest[start:] if start >= 0 else ""
+    return 0
+
+
 def claude_stop_hook(directory: Path = VOICE_SESSIONS_DIR) -> int:
     data = _read_hook_input()
     flag = session_flag(data, directory)
-    if flag is None or not flag.exists():
+    if flag is None:
         return 0
-    text = spoken_text(str(data.get("last_assistant_message") or ""))
-    if text:
-        _send({"command": "speak", "text": text})
+    reply = str(data.get("last_assistant_message") or "")
+    blocks = _SPOKEN_BLOCK.findall(reply)
+    with turn_record(flag, data) as record:
+        if record is None:
+            return 0
+        if blocks:
+            _speak_once(record, plain_speech(blocks[-1]))
+        elif not record["spoken"]:
+            # Nothing was read this turn: fall back to the reply's opening.
+            _speak_once(record, first_paragraph(reply))
     return 0
 
 
@@ -207,6 +273,7 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser("stop", help="stop speaking")
     commands.add_parser("claude-stop-hook", help="Claude Code Stop hook")
     commands.add_parser("claude-prompt-hook", help="Claude Code UserPromptSubmit hook")
+    commands.add_parser("claude-display-hook", help="Claude Code MessageDisplay hook")
     setup = commands.add_parser(
         "install-claude-code",
         help="add the /voice-mode command and hooks to Claude Code",
@@ -218,6 +285,8 @@ def main(argv: list[str] | None = None) -> int:
         return claude_stop_hook()
     if args.command == "claude-prompt-hook":
         return claude_prompt_hook()
+    if args.command == "claude-display-hook":
+        return claude_display_hook()
     if args.command == "install-claude-code":
         return _setup_claude_code(uninstall=args.uninstall)
     if args.command == "say":

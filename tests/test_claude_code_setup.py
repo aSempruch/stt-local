@@ -25,7 +25,7 @@ def our_commands(settings):
     }
 
 
-def test_install_into_empty_config_adds_skill_and_both_hooks(tmp_path, executable):
+def test_install_into_empty_config_adds_skill_and_all_hooks(tmp_path, executable):
     config = tmp_path / "claude"
 
     install(config, executable)
@@ -33,6 +33,7 @@ def test_install_into_empty_config_adds_skill_and_both_hooks(tmp_path, executabl
     assert our_commands(read_settings(config)) == {
         "Stop": [f"{executable} claude-stop-hook"],
         "UserPromptSubmit": [f"{executable} claude-prompt-hook"],
+        "MessageDisplay": [f"{executable} claude-display-hook"],
     }
     hook = read_settings(config)["hooks"]["Stop"][0]["hooks"][0]
     assert hook["type"] == "command" and hook["timeout"] == 5
@@ -70,9 +71,16 @@ def test_reinstall_replaces_old_checkout_hooks_without_duplicating(
 ):
     config = tmp_path / "claude"
     config.mkdir()
-    old = "~/old/stt-local/.venv/bin/stt-local-speech claude-stop-hook"
+    old = "~/old/stt-local/.venv/bin/stt-local-speech claude-{}-hook"
     (config / "settings.json").write_text(
-        json.dumps({"hooks": {"Stop": [{"hooks": [{"command": old}]}]}})
+        json.dumps(
+            {
+                "hooks": {
+                    "Stop": [{"hooks": [{"command": old.format("stop")}]}],
+                    "MessageDisplay": [{"hooks": [{"command": old.format("display")}]}],
+                }
+            }
+        )
     )
 
     install(config, executable)
@@ -82,6 +90,9 @@ def test_reinstall_replaces_old_checkout_hooks_without_duplicating(
     assert (config / "settings.json").read_text() == first
     assert our_commands(read_settings(config))["Stop"] == [
         f"{executable} claude-stop-hook"
+    ]
+    assert our_commands(read_settings(config))["MessageDisplay"] == [
+        f"{executable} claude-display-hook"
     ]
     assert messages[1].startswith("Kept")
 
