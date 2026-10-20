@@ -373,6 +373,70 @@ def test_superseded_request_never_reaches_worker(tmp_path):
     assert context.processes == []
 
 
+def test_speaking_lasts_from_request_until_reply_plays_out(tmp_path):
+    DeferredThread.started = []
+    seen = []
+
+    def audio_while_checking():
+        seen.append(manager.is_speaking)
+        return audio()
+
+    manager, _, _, _ = make_manager(
+        tmp_path,
+        [{"type": "ready"}, audio_while_checking, {"type": "done"}],
+        thread_factory=DeferredThread,
+    )
+    assert not manager.is_speaking
+
+    manager.speak("Hello.")
+    # Before the worker has even loaded.
+    assert manager.is_speaking
+
+    DeferredThread.started[0]()
+
+    assert seen == [True]
+    assert not manager.is_speaking
+
+
+def test_stop_ends_speaking_at_once(tmp_path):
+    DeferredThread.started = []
+    manager, _, _, _ = make_manager(tmp_path, [], thread_factory=DeferredThread)
+
+    manager.speak("Hello.")
+    manager.stop()
+
+    assert not manager.is_speaking
+
+
+def test_failed_reply_ends_speaking(tmp_path):
+    manager, _, _, _ = make_manager(
+        tmp_path,
+        [{"type": "error", "fatal": True, "error": "Couldn't load the voice model"}],
+        [],
+    )
+
+    manager.speak("Hello.")
+
+    assert not manager.is_speaking
+
+
+def test_superseded_reply_finishing_does_not_end_newer_one(tmp_path):
+    DeferredThread.started = []
+    manager, _, _, _ = make_manager(
+        tmp_path,
+        [{"type": "ready"}, audio(), {"type": "done"}],
+        thread_factory=DeferredThread,
+    )
+
+    manager.speak("Old.")
+    manager.speak("New.")
+    DeferredThread.started[0]()
+    assert manager.is_speaking
+
+    DeferredThread.started[1]()
+    assert not manager.is_speaking
+
+
 def test_shutdown_unloads_worker(tmp_path):
     manager, context, timers, _ = make_manager(
         tmp_path, [{"type": "ready"}, {"type": "done"}]

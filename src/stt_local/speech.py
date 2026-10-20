@@ -179,6 +179,9 @@ class SpeechManager:
         self._idle_timer: Any | None = None
         self._player: Any | None = None
         self._generation = 0
+        # Generation of the reply being spoken, from its request until it has
+        # played out; a stop or a newer reply supersedes it.
+        self._speaking: int | None = None
 
     @property
     def idle_seconds(self) -> float:
@@ -189,12 +192,19 @@ class SpeechManager:
         with self._state_lock:
             return self._process is not None and self._process.is_alive()
 
+    @property
+    def is_speaking(self) -> bool:
+        """True from speak() until that reply has played out, failed or been
+        stopped, including while the voice model loads."""
+        with self._state_lock:
+            return self._speaking == self._generation
+
     def speak(self, text: str) -> None:
         """Replace anything being spoken with this text; returns immediately."""
         text = text.strip()
         if not text:
             return
-        generation = self._interrupt()
+        generation = self._interrupt(speaking=True)
         self._thread_factory(
             target=lambda: self._speak(generation, text),
             daemon=True,
@@ -204,10 +214,11 @@ class SpeechManager:
     def stop(self) -> None:
         self._interrupt()
 
-    def _interrupt(self) -> int:
+    def _interrupt(self, *, speaking: bool = False) -> int:
         with self._state_lock:
             self._generation += 1
             generation = self._generation
+            self._speaking = generation if speaking else None
             player = self._player
             self._player = None
         if player is not None and player.poll() is None:
@@ -238,6 +249,9 @@ class SpeechManager:
                 self._stop_worker(force=True)
                 self._on_error(f"{type(exc).__name__}: {exc}")
             finally:
+                with self._state_lock:
+                    if self._speaking == generation:
+                        self._speaking = None
                 self.schedule_idle_shutdown()
 
     def _render(self, generation: int, text: str) -> None:

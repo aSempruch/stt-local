@@ -46,7 +46,7 @@ If Right Command does nothing or Command-V is not synthesized, Accessibility per
 2. Tap and release **Right Command**, then speak. Approve Microphone access if prompted; if recording did not start, tap again after granting access.
 3. Tap and release **Right Command** again to stop. Wait for the transcript to appear in the focused app, followed by Return. To paste without Return, double-tap Right Command instead.
 
-The first recording downloads (about 1.6 GB) and warms `mlx-community/whisper-large-v3-turbo`, so it takes longer: a notification announces the download and the floating pill shows its progress instead of the waveform. Model loading begins immediately after microphone capture starts. The worker remains available for follow-up dictation and exits after 10 idle minutes so macOS can reclaim all model and Metal memory; change the delay with **Unload model after** in **Settings…**.
+The first recording downloads (about 1.6 GB) and warms `mlx-community/whisper-large-v3-turbo`, so it takes longer: a notification announces the download and the floating pill shows its progress instead of the waveform. Model loading begins immediately after microphone capture starts. The worker remains available for follow-up dictation and exits after 10 idle minutes so macOS can reclaim all model and Metal memory; change the delay with **Unload model after** in **Settings…**. The menu-bar microphone is filled while the model is loaded and hollow once it has been unloaded, when the next dictation will load it again.
 
 See [Troubleshooting](#troubleshooting) if recording or pasting does not work.
 
@@ -75,7 +75,7 @@ While dictation is active, a small floating pill appears at the bottom centre of
 
 STT Local can also speak, using the local [Kokoro-82M](https://huggingface.co/mlx-community/Kokoro-82M-bf16) voice through MLX. It works like the Whisper model: a separate worker loads on the first request (about 2.5 seconds, plus a one-time download of about 370 MB), stays warm for follow-ups (about 0.4 seconds to the first sentence), and exits after the **Unload model after** delay. Replies are rendered a sentence at a time and played as one continuous stream, so playback starts before the whole reply is rendered and sentences follow each other with a short fixed pause. The output device opens only while a reply is playing.
 
-Voice mode is per Claude Code session: type `/voice-mode` in a session to toggle it, or `/voice-mode on` / `/voice-mode off`. The hook handles the command itself, so it never reaches the model. Other sessions stay silent. **Stop Speaking** in the menu bar cuts off the current reply; starting a dictation or submitting a new prompt in any session does too. A newer reply replaces one still being spoken.
+Voice mode is per Claude Code session: type `/voice-mode` in a session to toggle it, or `/voice-mode on` / `/voice-mode off`. The hook handles the command itself, so it never reaches the model. Other sessions stay silent. **Stop Speaking**, which appears in the menu bar menu only while a reply is being spoken, cuts off the current reply; starting a dictation or submitting a new prompt in any session does too. A newer reply replaces one still being spoken.
 
 To set it up, install the app as above, then run this from the checkout:
 

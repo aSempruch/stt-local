@@ -36,9 +36,11 @@ def status_presentation(state: DictationState) -> tuple[str | None, str]:
     }[state]
 
 
-def status_symbol_name(state: DictationState) -> str:
+def status_symbol_name(state: DictationState, *, model_loaded: bool) -> str:
     return {
-        DictationState.IDLE: "mic.fill",
+        # Hollow while the Whisper model is unloaded, so a slower next
+        # dictation is expected.
+        DictationState.IDLE: "mic.fill" if model_loaded else "mic",
         DictationState.RECORDING_LOADING: "waveform",
         DictationState.RECORDING_READY: "waveform",
         DictationState.STOPPING: "ellipsis.circle",
@@ -47,12 +49,16 @@ def status_symbol_name(state: DictationState) -> str:
     }[state]
 
 
-def status_display(state: DictationState, error: str | None) -> tuple[str, str]:
+def status_display(
+    state: DictationState, error: str | None, *, model_loaded: bool
+) -> tuple[str, str]:
     """Symbol and menu text; a reported error stays visible until the next
     dictation starts, because notifications can be missed or disabled."""
     if error is not None and state in {DictationState.IDLE, DictationState.ERROR}:
-        return status_symbol_name(DictationState.ERROR), error
-    return status_symbol_name(state), status_presentation(state)[1]
+        state, text = DictationState.ERROR, error
+    else:
+        text = status_presentation(state)[1]
+    return status_symbol_name(state, model_loaded=model_loaded), text
 
 
 def make_status_icon(symbol_name: str) -> Any:
@@ -120,7 +126,7 @@ if rumps is not None:
         ) -> None:
             super().__init__("STT Local", title=None, quit_button=None)
             self._icon_nsimage = make_status_icon(
-                status_symbol_name(DictationState.IDLE)
+                status_symbol_name(DictationState.IDLE, model_loaded=False)
             )
             self.coordinator = coordinator
             self.settings_controller = settings
@@ -135,6 +141,8 @@ if rumps is not None:
             self.status_item = rumps.MenuItem("Idle")
             self._state = DictationState.IDLE
             self._error: str | None = None
+            self._model_loaded = False
+            self._speaking = False
             self._announced_download = False
             self._rebuild_menu()
             self._timer = rumps.Timer(self._tick, POLL_INTERVAL_SECONDS)
@@ -151,6 +159,10 @@ if rumps is not None:
 
         def _rebuild_menu(self) -> None:
             processor_heading = rumps.MenuItem("Processor")
+            self._stop_speaking_item = rumps.MenuItem(
+                "Stop Speaking", callback=self._stop_speaking
+            )
+            self._speaking_separator = rumps.rumps.SeparatorMenuItem()
             self._menu.clear()
             self.menu = [
                 self.status_item,
@@ -158,13 +170,14 @@ if rumps is not None:
                 processor_heading,
                 *self.processor_menu.build_items(),
                 rumps.MenuItem("Reload Processors", callback=self._reload_processors),
-                None,
-                rumps.MenuItem("Stop Speaking", callback=self._stop_speaking),
+                self._speaking_separator,
+                self._stop_speaking_item,
                 None,
                 rumps.MenuItem("Settings…", callback=self._show_settings),
                 None,
                 rumps.MenuItem("Quit STT Local", callback=self._quit),
             ]
+            self._render_speaking()
 
         def update_status(self, state: DictationState) -> None:
             if state not in {DictationState.IDLE, DictationState.ERROR}:
@@ -175,7 +188,9 @@ if rumps is not None:
                 self.overlay.set_state(state)
 
         def _render_status(self) -> None:
-            symbol, status = status_display(self._state, self._error)
+            symbol, status = status_display(
+                self._state, self._error, model_loaded=self._model_loaded
+            )
             self.title = status_presentation(self._state)[0]
             self._icon_nsimage = make_status_icon(symbol)
             try:
@@ -184,9 +199,25 @@ if rumps is not None:
                 pass
             self.status_item.title = status
 
+        def _render_speaking(self) -> None:
+            # The timer doesn't fire while the menu is open, so a reply that
+            # ends then leaves the item visible until the menu is reopened.
+            hidden = not self._speaking
+            self._stop_speaking_item.hidden = hidden
+            self._speaking_separator._menuitem.setHidden_(hidden)
+
         def _tick(self, _timer: Any) -> None:
             self.coordinator.refresh()
             self._show_download_progress()
+            # The worker loads and unloads on its own threads and timers.
+            model_loaded = self.coordinator.worker.is_ready
+            if model_loaded != self._model_loaded:
+                self._model_loaded = model_loaded
+                self._render_status()
+            speaking = self.speech.is_speaking
+            if speaking != self._speaking:
+                self._speaking = speaking
+                self._render_speaking()
             # A timed-out CoreAudio call can leave PortAudio locked in this
             # process. Replace it once transcription is finished.
             restart_if_audio_unusable(self.coordinator)
