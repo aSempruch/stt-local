@@ -10,13 +10,6 @@ from .coordinator import DictationState
 
 
 MIN_DOUBLE_TAP_SECONDS = 0.06
-RECORDING_STATES = frozenset(
-    {DictationState.RECORDING_LOADING, DictationState.RECORDING_READY}
-)
-CANCELLABLE_STATES = RECORDING_STATES | {
-    DictationState.STOPPING,
-    DictationState.TRANSCRIBING,
-}
 
 
 def _timer_factory(delay: float, callback: Callable[[], None]) -> threading.Timer:
@@ -112,10 +105,6 @@ class RightCommandGestures:
             if self._ignore_short_tap:
                 self._ignore_short_tap = False
                 return
-            if self._second_tap:
-                # Even if transcription finished between the taps: a cancel
-                # gesture must never start a new recording.
-                action = self._cancel
             elif self._press_state is DictationState.IDLE:
                 action = self._toggle
                 start_guard_token = object()
@@ -124,17 +113,19 @@ class RightCommandGestures:
                     self._double_tap_seconds(),
                     lambda: self._clear_start_guard(start_guard_token),
                 )
-            elif self._press_state in CANCELLABLE_STATES:
-                # Wait out the double-tap window, since a second tap cancels.
-                single_tap = (
-                    self._submit if self._press_state in RECORDING_STATES else None
-                )
-                single_tap_token = object()
-                self._single_tap_token = single_tap_token
-                self._single_tap_timer = self._new_timer(
-                    self._double_tap_seconds(),
-                    lambda: self._fire_single_tap(single_tap_token, single_tap),
-                )
+            elif self._press_state in {
+                DictationState.RECORDING_LOADING,
+                DictationState.RECORDING_READY,
+            }:
+                if self._second_tap:
+                    action = self._paste
+                else:
+                    single_tap_token = object()
+                    self._single_tap_token = single_tap_token
+                    self._single_tap_timer = self._new_timer(
+                        self._double_tap_seconds(),
+                        lambda: self._fire_single_tap(single_tap_token),
+                    )
             self._second_tap = False
         if action is not None:
             action()
@@ -185,18 +176,15 @@ class RightCommandGestures:
                 self._single_tap_timer.cancel()
                 self._single_tap_timer = None
                 self._single_tap_token = None
-        self._paste()
+        self._cancel()
 
-    def _fire_single_tap(
-        self, token: object, action: Callable[[], None] | None
-    ) -> None:
+    def _fire_single_tap(self, token: object) -> None:
         with self._lock:
             if self._single_tap_token is not token:
                 return
             self._single_tap_timer = None
             self._single_tap_token = None
-        if action is not None:
-            action()
+        self._submit()
 
     def _clear_start_guard(self, token: object) -> None:
         with self._lock:

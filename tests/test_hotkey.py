@@ -83,7 +83,7 @@ def test_recording_single_tap_waits_for_short_double_tap_window():
     assert actions == ["submit"]
 
 
-def test_recording_double_tap_cancels_and_drops_pending_submit():
+def test_recording_double_tap_pastes_and_cancels_pending_submit():
     now = [0.0]
     gestures, _, actions, timers = make_gestures(
         DictationState.RECORDING_READY, clock=lambda: now[0]
@@ -97,52 +97,28 @@ def test_recording_double_tap_cancels_and_drops_pending_submit():
     gestures.release()
 
     assert single_tap_timer.cancelled
-    assert actions == ["cancel"]
+    assert actions == ["paste"]
     single_tap_timer.fire()
-    assert actions == ["cancel"]
+    assert actions == ["paste"]
 
 
-def test_double_tap_while_transcribing_cancels():
+def test_taps_while_transcribing_do_nothing():
     now = [0.0]
-    gestures, _, actions, _ = make_gestures(
+    gestures, _, actions, timers = make_gestures(
         DictationState.TRANSCRIBING, clock=lambda: now[0]
     )
     gestures.press()
     gestures.release()
-
     now[0] = 0.10
     gestures.press()
     gestures.release()
-
-    assert actions == ["cancel"]
-
-
-def test_single_tap_while_transcribing_does_nothing():
-    gestures, _, actions, timers = make_gestures(DictationState.TRANSCRIBING)
-    gestures.press()
-    gestures.release()
-    timers[-1].fire()
+    for timer in timers:
+        timer.fire()
 
     assert actions == []
 
 
-def test_second_tap_after_transcription_finishes_cancels_instead_of_starting():
-    now = [0.0]
-    gestures, current, actions, _ = make_gestures(
-        DictationState.TRANSCRIBING, clock=lambda: now[0]
-    )
-    gestures.press()
-    gestures.release()
-    current[0] = DictationState.IDLE
-
-    now[0] = 0.10
-    gestures.press()
-    gestures.release()
-
-    assert actions == ["cancel"]
-
-
-def test_very_fast_duplicate_press_does_not_turn_single_tap_into_cancel():
+def test_very_fast_duplicate_press_does_not_turn_single_tap_into_paste():
     now = [0.0]
     gestures, _, actions, timers = make_gestures(
         DictationState.RECORDING_READY, clock=lambda: now[0]
@@ -159,18 +135,18 @@ def test_very_fast_duplicate_press_does_not_turn_single_tap_into_cancel():
     assert actions == ["submit"]
 
 
-def test_long_press_pastes_as_soon_as_threshold_is_reached():
+def test_long_press_cancels_as_soon_as_threshold_is_reached():
     gestures, _, actions, timers = make_gestures(DictationState.RECORDING_READY)
     gestures.press()
 
     timers[-1].fire()
 
-    assert actions == ["paste"]
+    assert actions == ["cancel"]
     gestures.release()
-    assert actions == ["paste"]
+    assert actions == ["cancel"]
 
 
-def test_hold_after_a_tap_pastes_without_submitting():
+def test_hold_after_a_tap_cancels_the_pending_submit():
     now = [0.0]
     gestures, _, actions, timers = make_gestures(
         DictationState.RECORDING_READY, clock=lambda: now[0]
@@ -185,7 +161,7 @@ def test_hold_after_a_tap_pastes_without_submitting():
     gestures.release()
     single_tap_timer.fire()
 
-    assert actions == ["paste"]
+    assert actions == ["cancel"]
 
 
 def test_timings_are_read_for_each_press_so_settings_apply_live():
@@ -223,7 +199,7 @@ def test_idle_long_press_does_not_start_recording():
     timers[-1].fire()
     gestures.release()
 
-    assert actions == ["paste"]
+    assert actions == ["cancel"]
 
 
 def test_command_shortcut_does_not_start_recording():
@@ -245,7 +221,7 @@ def test_command_shortcut_does_not_stop_recording():
     assert actions == []
 
 
-def test_command_shortcut_before_hold_threshold_does_not_paste():
+def test_command_shortcut_before_hold_threshold_does_not_cancel():
     gestures, _, actions, timers = make_gestures(DictationState.RECORDING_READY)
     gestures.press()
     gestures.other_key_pressed()
@@ -255,14 +231,14 @@ def test_command_shortcut_before_hold_threshold_does_not_paste():
     assert actions == []
 
 
-def test_other_key_after_hold_activates_cannot_undo_paste():
+def test_other_key_after_hold_activates_cannot_undo_cancel():
     gestures, _, actions, timers = make_gestures(DictationState.RECORDING_READY)
     gestures.press()
     timers[-1].fire()
     gestures.other_key_pressed()
     gestures.release()
 
-    assert actions == ["paste"]
+    assert actions == ["cancel"]
 
 
 def test_command_shortcut_does_not_prevent_next_solo_tap():

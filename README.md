@@ -44,7 +44,7 @@ If Right Command does nothing or Command-V is not synthesized, Accessibility per
 
 1. Focus a text field, such as a new TextEdit document.
 2. Tap and release **Right Command**, then speak. Approve Microphone access if prompted; if recording did not start, tap again after granting access.
-3. Tap and release **Right Command** again to stop. Wait for the transcript to appear in the focused app, followed by Return. To paste without Return, hold Right Command for half a second instead of tapping.
+3. Tap and release **Right Command** again to stop. Wait for the transcript to appear in the focused app, followed by Return. To paste without Return, double-tap Right Command instead.
 
 The first recording downloads (about 1.6 GB) and warms `mlx-community/whisper-large-v3-turbo`, so it takes longer: a notification announces the download and the floating pill shows its progress instead of the waveform. Model loading begins immediately after microphone capture starts. The worker remains available for follow-up dictation and exits after 10 idle minutes so macOS can reclaim all model and Metal memory; change the delay with **Unload model after** in **Settings…**.
 
@@ -52,14 +52,14 @@ See [Troubleshooting](#troubleshooting) if recording or pasting does not work.
 
 ## Keyboard controls
 
-STT Local monitors the Right Command key directly. Taps take effect after Right Command is released. A hold takes effect as soon as it reaches 500 ms. Pressing another key before a gesture activates makes it a normal keyboard shortcut and does not control dictation:
+STT Local monitors the Right Command key directly. Taps take effect after Right Command is released. A hold cancels as soon as it reaches 500 ms. Pressing another key before a gesture activates makes it a normal keyboard shortcut and does not control dictation:
 
 - Tap while idle: start recording immediately on release.
 - Tap while recording: stop, transcribe, paste, then press Return, after a 200 ms double-tap window.
-- Hold for 500 ms while recording: stop, transcribe, and paste without pressing Return.
-- Double-tap while recording or transcribing: discard the recording or cancel the transcription.
+- Double-tap while recording: stop, transcribe, and paste without pressing Return.
+- Hold for 500 ms: discard an active recording or cancel active transcription.
 
-Change both timings in **Settings…**: **Long press to paste** sets the hold, and **Double-tap window** sets how long a tap waits for a second tap. They apply from the next press.
+Change both timings in **Settings…**: **Long press to cancel** sets the hold, and **Double-tap window** sets how long a tap waits for a second tap. They apply from the next press.
 
 Starting uses a compact double chirp. Submit uses its own low confirmation cue before transcription, pasting without Return uses the Ping cue, and cancel uses Pop. Cancelled recordings are discarded. Cancelling active transcription terminates the model worker, so the next recording reloads the model.
 
