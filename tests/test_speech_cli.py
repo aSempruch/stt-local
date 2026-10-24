@@ -66,7 +66,7 @@ def prompt(monkeypatch, capsys, tmp_path, text, reply={"ok": True}):
 def test_voice_mode_command_toggles_only_this_session(monkeypatch, capsys, tmp_path):
     sent, out = prompt(monkeypatch, capsys, tmp_path, "/voice-mode")
 
-    assert sent == [{"command": "stop"}]
+    assert sent == [{"command": "stop", "reason": "prompt"}]
     assert out == {"decision": "block", "reason": "Voice mode on for this session."}
     assert [flag.name for flag in tmp_path.iterdir()] == [SESSION]
 
@@ -101,7 +101,7 @@ def test_prompt_adds_context_only_in_voice_sessions(monkeypatch, capsys, tmp_pat
     (tmp_path / SESSION).touch()
     sent, out = prompt(monkeypatch, capsys, tmp_path, "fix the bug")
 
-    assert sent == [{"command": "stop"}]
+    assert sent == [{"command": "stop", "reason": "prompt"}]
     output = out["hookSpecificOutput"]
     assert output["hookEventName"] == "UserPromptSubmit"
     assert "<spoken>" in output["additionalContext"]

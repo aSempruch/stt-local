@@ -437,6 +437,99 @@ def test_superseded_reply_finishing_does_not_end_newer_one(tmp_path):
     assert not manager.is_speaking
 
 
+def test_replies_during_a_dictation_wait_for_it_and_play_together(tmp_path):
+    manager, context, _, players = make_manager(
+        tmp_path, [{"type": "ready"}, audio(), audio(), {"type": "done"}]
+    )
+
+    manager.hold()
+    manager.speak("Tests pass.")
+    manager.speak("Build done.")
+
+    assert context.processes == []
+    assert not manager.is_speaking
+
+    manager.release()
+
+    assert context.connections[0].sent == [
+        {"command": "speak", "text": "Tests pass.\nBuild done.", "voice": "af_heart"}
+    ]
+    assert len(players) == 1
+
+
+def test_holding_cuts_off_the_reply_being_spoken(tmp_path):
+    DeferredThread.started = []
+    manager, context, _, _ = make_manager(tmp_path, [], thread_factory=DeferredThread)
+
+    manager.speak("Hello.")
+    manager.hold()
+    assert not manager.is_speaking
+
+    DeferredThread.started[0]()
+    assert context.processes == []
+
+
+def test_release_with_nothing_held_says_nothing(tmp_path):
+    manager, context, _, _ = make_manager(tmp_path, [])
+
+    manager.release()
+    manager.hold()
+    manager.release()
+    manager.release()
+
+    assert context.processes == []
+
+
+def test_stop_drops_held_replies_but_keeps_holding(tmp_path):
+    manager, context, _, _ = make_manager(
+        tmp_path, [{"type": "ready"}, audio(), {"type": "done"}]
+    )
+
+    manager.hold()
+    manager.speak("Dropped.")
+    manager.stop()
+    manager.speak("Kept.")
+    assert context.processes == []
+
+    manager.release()
+
+    assert [message["text"] for message in context.connections[0].sent] == ["Kept."]
+
+
+def test_a_new_prompt_spares_replies_held_for_the_dictation(tmp_path):
+    DeferredThread.started = []
+    manager, _, _, _ = make_manager(tmp_path, [], thread_factory=DeferredThread)
+
+    manager.hold()
+    manager.speak("Done.")
+    manager.stop(spare_held=True)
+    manager.release()
+    assert manager.is_speaking
+
+    # Submitting the dictated prompt leaves the reply that waited for it playing.
+    manager.stop(spare_held=True)
+    assert manager.is_speaking
+
+    manager.stop()
+    assert not manager.is_speaking
+
+
+def test_a_new_prompt_cuts_off_replies_that_did_not_wait(tmp_path):
+    DeferredThread.started = []
+    manager, _, _, _ = make_manager(tmp_path, [], thread_factory=DeferredThread)
+
+    manager.speak("Hello.")
+    manager.stop(spare_held=True)
+    assert not manager.is_speaking
+
+    manager.hold()
+    manager.speak("Waited.")
+    manager.release()
+    manager.speak("Newer.")
+    manager.stop(spare_held=True)
+    assert not manager.is_speaking
+
+
 def test_shutdown_unloads_worker(tmp_path):
     manager, context, timers, _ = make_manager(
         tmp_path, [{"type": "ready"}, {"type": "done"}]

@@ -303,6 +303,15 @@ def build_app() -> Any:
         on_idle_unload_change=idle_unload_changed,
     )
     recorder = AudioRecorder()
+
+    def dictation_event(name: str) -> None:
+        # Speech would talk over the dictation and end up in the recording,
+        # so replies wait until it is pasted or cancelled.
+        if name == "capture_start":
+            speech.hold()
+        elif name == "dictation_end":
+            speech.release()
+
     coordinator = DictationCoordinator(
         recorder=recorder,
         worker=worker,
@@ -312,8 +321,7 @@ def build_app() -> Any:
         selected_processor=lambda: settings_model.selected_processor,
         notification_callback=notify,
         dispatch=lambda callback: AppHelper.callAfter(callback),
-        # Speech would talk over the dictation and end up in the recording.
-        event_callback=lambda name: speech.stop() if name == "capture_start" else None,
+        event_callback=dictation_event,
     )
     def dispatch_action(callback: Any) -> None:
         AppHelper.callAfter(callback)

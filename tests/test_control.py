@@ -24,13 +24,13 @@ def socket_path():
 class FakeSpeech:
     def __init__(self):
         self.spoken = []
-        self.stops = 0
+        self.stops = []
 
     def speak(self, text):
         self.spoken.append(text)
 
-    def stop(self):
-        self.stops += 1
+    def stop(self, *, spare_held=False):
+        self.stops.append(spare_held)
 
 
 def test_round_trip_through_socket(socket_path):
@@ -97,7 +97,15 @@ def test_handler_speaks_and_stops():
     assert handler({"command": "status"}) == {"ok": True}
 
     assert speech.spoken == ["Hi."]
-    assert speech.stops == 1
+    assert speech.stops == [False]
+
+
+def test_stop_for_a_new_prompt_spares_replies_held_for_dictation():
+    speech = FakeSpeech()
+
+    CommandHandler(speech)({"command": "stop", "reason": "prompt"})
+
+    assert speech.stops == [True]
 
 
 def test_invalid_requests_raise():

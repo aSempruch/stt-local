@@ -185,6 +185,10 @@ class DictationCoordinator:
         self._set_state(DictationState.IDLE)
 
     def _set_state(self, state: DictationState) -> None:
+        if state is DictationState.IDLE and not self._shutdown_requested.is_set():
+            # Before the state allows another dictation, so that one's
+            # capture_start always follows this.
+            self.event_callback("dictation_end")
         with self._lock:
             self._state = state
         self._emit_status(state)

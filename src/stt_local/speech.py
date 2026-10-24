@@ -182,6 +182,11 @@ class SpeechManager:
         # Generation of the reply being spoken, from its request until it has
         # played out; a stop or a newer reply supersedes it.
         self._speaking: int | None = None
+        # Replies that arrive during a dictation, spoken once it ends; None
+        # while not dictating.
+        self._held: list[str] | None = None
+        # Generation of the reply released after a dictation.
+        self._released: int | None = None
 
     @property
     def idle_seconds(self) -> float:
@@ -200,19 +205,57 @@ class SpeechManager:
             return self._speaking == self._generation
 
     def speak(self, text: str) -> None:
-        """Replace anything being spoken with this text; returns immediately."""
+        """Replace anything being spoken with this text; returns immediately.
+        During a dictation the text waits for release() instead."""
         text = text.strip()
         if not text:
             return
-        generation = self._interrupt(speaking=True)
+        with self._state_lock:
+            if self._held is not None:
+                self._held.append(text)
+                return
+            generation = self._interrupt(speaking=True)
+        self._start(generation, text)
+
+    def stop(self, *, spare_held: bool = False) -> None:
+        """Cut off the reply and drop any held for a dictation. With
+        spare_held, as for a newly submitted prompt, held replies are kept,
+        and so is one still playing after its release: that prompt is most
+        likely the dictation they waited for."""
+        with self._state_lock:
+            if spare_held:
+                if self._held is not None:
+                    return
+                if self._released == self._generation and self.is_speaking:
+                    return
+            elif self._held is not None:
+                self._held = []
+            self._interrupt()
+
+    def hold(self) -> None:
+        """Cut off the reply and keep later ones until release(), so speech
+        neither talks over a dictation nor ends up in its recording."""
+        with self._state_lock:
+            if self._held is None:
+                self._held = []
+            self._interrupt()
+
+    def release(self) -> None:
+        """End the hold and speak what arrived during it as one reply."""
+        with self._state_lock:
+            held, self._held = self._held, None
+            if not held:
+                return
+            generation = self._interrupt(speaking=True)
+            self._released = generation
+        self._start(generation, "\n".join(held))
+
+    def _start(self, generation: int, text: str) -> None:
         self._thread_factory(
             target=lambda: self._speak(generation, text),
             daemon=True,
             name="stt-local-speech",
         ).start()
-
-    def stop(self) -> None:
-        self._interrupt()
 
     def _interrupt(self, *, speaking: bool = False) -> int:
         with self._state_lock:

@@ -199,8 +199,10 @@ def claude_stop_hook(directory: Path = VOICE_SESSIONS_DIR) -> int:
 
 def claude_prompt_hook(directory: Path = VOICE_SESSIONS_DIR) -> int:
     data = _read_hook_input()
-    # A new prompt in any session makes the speech in progress stale.
-    running = _send({"command": "stop"}) is not None
+    # A new prompt in any session makes the speech in progress stale. The app
+    # still plays replies that waited for a dictation, which this prompt
+    # probably is.
+    running = _send({"command": "stop", "reason": "prompt"}) is not None
     flag = session_flag(data, directory)
     if flag is None:
         return 0

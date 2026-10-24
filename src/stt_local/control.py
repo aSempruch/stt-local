@@ -116,7 +116,7 @@ class CommandHandler:
             self.speech.speak(text)
             return {"ok": True}
         if command == "stop":
-            self.speech.stop()
+            self.speech.stop(spare_held=request.get("reason") == "prompt")
             return {"ok": True}
         if command == "status":
             return {"ok": True}

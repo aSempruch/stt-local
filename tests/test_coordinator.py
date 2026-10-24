@@ -291,3 +291,37 @@ def test_shutdown_aborts_recording_and_stops_worker():
     worker.cancel.assert_called_once_with()
     worker.shutdown.assert_not_called()
     assert coordinator.state is DictationState.IDLE
+
+
+def test_each_dictation_end_is_announced_before_the_next_can_start():
+    coordinator, recorder, *_ = make_coordinator()
+    ends = []
+
+    def record_end(name):
+        if name == "dictation_end":
+            ends.append(coordinator.state)
+
+    coordinator.event_callback = record_end
+
+    coordinator.start_recording()
+    coordinator.stop_recording(submit=True)
+    coordinator.start_recording()
+    coordinator.cancel()
+    recorder.start.side_effect = RuntimeError("no microphone")
+    coordinator.start_recording()
+
+    # Announced while the state still refuses a new start_recording().
+    assert ends == [
+        DictationState.TRANSCRIBING,
+        DictationState.STOPPING,
+        DictationState.IDLE,
+    ]
+
+
+def test_shutdown_does_not_announce_a_dictation_end():
+    coordinator, *_, events = make_coordinator()
+    coordinator.start_recording()
+
+    coordinator.shutdown()
+
+    assert "dictation_end" not in events
