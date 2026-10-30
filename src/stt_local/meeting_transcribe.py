@@ -206,7 +206,8 @@ def transcribe_meeting(
     system = read_track(meeting_dir / "system.pcm")
     recording = _read_json(meeting_dir / "recording.json")
     notes = list(meeting.notes)
-    if len(system) and not system.any():
+    # No sound at all, including no buffers, while the microphone recorded.
+    if len(mic) and not system.any():
         notes = [note for note in notes if not note.startswith("System audio")]
         notes.append(SILENT_SYSTEM_NOTE)
 

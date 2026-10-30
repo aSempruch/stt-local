@@ -221,6 +221,22 @@ def test_transcribe_meeting_notes_when_system_track_is_silent(tmp_path):
     assert "**[00:03] Me:** Yes, loud and clear." in text
 
 
+def test_transcribe_meeting_notes_when_system_track_never_arrived(tmp_path):
+    mic = square(10, [(3.5, 5.5, 0.3)])
+    meeting = make_meeting(tmp_path, mic, np.zeros(0, np.float32))
+
+    path = mt.transcribe_meeting(
+        meeting.path,
+        tmp_path / "Meetings",
+        generate=fake_generate,
+        speech_regions=nonzero_regions,
+        keywords="",
+        progress=lambda *_: None,
+    )
+
+    assert mt.SILENT_SYSTEM_NOTE in path.read_text()
+
+
 def test_main_reports_error_line_and_exit_code_for_unwritable_folder(tmp_path):
     mic = square(4, [(1.0, 2.0, 0.3)])
     meeting = make_meeting(tmp_path, mic, np.zeros_like(mic))
