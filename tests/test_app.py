@@ -37,6 +37,14 @@ def test_status_symbol_changes_with_workflow_state():
         assert symbol(DictationState.ERROR) == "exclamationmark.triangle"
 
 
+def test_progress_icon_is_a_template_image_for_any_fraction():
+    for fraction in (0.0, 0.4, 1.0):
+        image = app.make_status_icon(app.ProgressIcon(fraction))
+        assert image.isTemplate()
+        assert image.size().width == image.size().height == 18
+        assert image.accessibilityDescription() == "STT Local"
+
+
 def test_idle_microphone_is_hollow_until_the_model_is_loaded():
     assert app.status_symbol_name(DictationState.IDLE, model_loaded=False) == "mic"
     assert app.status_symbol_name(DictationState.IDLE, model_loaded=True) == "mic.fill"
@@ -104,8 +112,9 @@ def test_reported_error_stays_visible_until_next_dictation():
 
 def test_meeting_status_shows_while_dictation_idle_and_yields_to_dictation():
     recording = MeetingStatus("recording", "Recording Meeting · 00:05")
-    transcribing = MeetingStatus("transcribing", "Transcribing Meeting · 40%")
-    downloading = MeetingStatus("downloading", "Downloading Meeting Model · 35%")
+    transcribing = MeetingStatus("transcribing", "Transcribing Meeting · 40%", 0.4)
+    downloading = MeetingStatus("downloading", "Downloading Meeting Model · 35%", 0.35)
+    loading = MeetingStatus("transcribing", "Transcribing Meeting")
     display = lambda state, error, meeting: app.status_display(
         state, error, model_loaded=True, meeting=meeting
     )
@@ -116,10 +125,12 @@ def test_meeting_status_shows_while_dictation_idle_and_yields_to_dictation():
     )
     assert display(DictationState.IDLE, "Old error", recording)[0] == "record.circle"
     assert display(DictationState.IDLE, None, transcribing) == (
-        "text.bubble",
+        app.ProgressIcon(0.4),
         "Transcribing Meeting · 40%",
     )
-    assert display(DictationState.ERROR, None, downloading)[0] == "text.bubble"
+    assert display(DictationState.ERROR, None, downloading)[0] == app.ProgressIcon(0.35)
+    # Before the first segment the ring is empty.
+    assert display(DictationState.IDLE, None, loading)[0] == app.ProgressIcon(0.0)
     assert display(DictationState.RECORDING_READY, None, recording) == (
         "waveform",
         "Recording · Model Ready",

@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from .alerts import menu_error_title, post_notification, report_error
@@ -53,8 +54,18 @@ def status_symbol_name(state: DictationState, *, model_loaded: bool) -> str:
     }[state]
 
 
-def meeting_symbol_name(kind: str) -> str:
-    return "record.circle" if kind == "recording" else "text.bubble"
+@dataclass(frozen=True)
+class ProgressIcon:
+    """A ring that fills clockwise from twelve o'clock, drawn instead of an
+    SF Symbol while a meeting transcribes or its model downloads."""
+
+    fraction: float
+
+
+def meeting_icon(meeting: MeetingStatus) -> str | ProgressIcon:
+    if meeting.kind == "recording":
+        return "record.circle"
+    return ProgressIcon(meeting.progress or 0.0)
 
 
 def status_display(
@@ -63,13 +74,13 @@ def status_display(
     *,
     model_loaded: bool,
     meeting: MeetingStatus | None = None,
-) -> tuple[str, str]:
+) -> tuple[str | ProgressIcon, str]:
     """Symbol and menu text. Active dictation comes first, then a meeting
     recording or transcription. A reported error stays visible until the
     next dictation starts, because notifications can be missed or disabled."""
     dictation_idle = state in {DictationState.IDLE, DictationState.ERROR}
     if dictation_idle and meeting is not None:
-        return meeting_symbol_name(meeting.kind), meeting.text
+        return meeting_icon(meeting), meeting.text
     if error is not None and dictation_idle:
         state, text = DictationState.ERROR, error
     else:
@@ -77,7 +88,49 @@ def status_display(
     return status_symbol_name(state, model_loaded=model_loaded), text
 
 
-def make_status_icon(symbol_name: str) -> Any:
+PROGRESS_ICON_POINTS = 18.0
+
+
+def make_progress_icon(fraction: float) -> Any:
+    import AppKit
+    import Foundation
+
+    size = PROGRESS_ICON_POINTS
+    fraction = min(1.0, max(0.0, fraction))
+
+    def draw(_rect: Any) -> bool:
+        AppKit.NSColor.blackColor().set()
+        center = Foundation.NSMakePoint(size / 2, size / 2)
+        radius = 7.25
+        ring = AppKit.NSBezierPath.bezierPathWithOvalInRect_(
+            Foundation.NSMakeRect(
+                center.x - radius, center.y - radius, 2 * radius, 2 * radius
+            )
+        )
+        ring.setLineWidth_(1.5)
+        ring.stroke()
+        if fraction > 0:
+            wedge = AppKit.NSBezierPath.bezierPath()
+            wedge.moveToPoint_(center)
+            wedge.appendBezierPathWithArcWithCenter_radius_startAngle_endAngle_clockwise_(
+                center, radius - 2.25, 90.0, 90.0 - 360.0 * fraction, True
+            )
+            wedge.closePath()
+            wedge.fill()
+        return True
+
+    # Drawn at display time, so it stays sharp on Retina screens.
+    image = AppKit.NSImage.imageWithSize_flipped_drawingHandler_(
+        Foundation.NSMakeSize(size, size), False, draw
+    )
+    image.setTemplate_(True)
+    image.setAccessibilityDescription_("STT Local")
+    return image
+
+
+def make_status_icon(symbol_name: str | ProgressIcon) -> Any:
+    if isinstance(symbol_name, ProgressIcon):
+        return make_progress_icon(symbol_name.fraction)
     import AppKit
 
     image = AppKit.NSImage.imageWithSystemSymbolName_accessibilityDescription_(

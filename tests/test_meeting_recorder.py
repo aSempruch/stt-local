@@ -305,7 +305,7 @@ def test_queue_runs_one_job_at_a_time_and_status_counts_them(setup, monkeypatch)
         pump(controller, lambda: not controller.is_recording)
 
     pump(controller, lambda: controller.status() is not None and "40%" in controller.status().text)
-    assert controller.status() == MeetingStatus("transcribing", "Transcribing Meeting 1 of 2 · 40%")
+    assert controller.status() == MeetingStatus("transcribing", "Transcribing Meeting 1 of 2 · 40%", 0.4)
     assert len(json_lines(tmp_path / "transcriber-calls")) == 1
 
     hold.write_text("go")
@@ -362,7 +362,7 @@ def test_prefetches_model_at_start_when_not_cached(setup):
     pump(controller, lambda: not controller.is_recording)
     pump(
         controller,
-        lambda: controller.status() == MeetingStatus("downloading", "Downloading Meeting Model · 35%"),
+        lambda: controller.status() == MeetingStatus("downloading", "Downloading Meeting Model · 35%", 0.35),
     )
     # The transcription waits for the download to finish.
     assert not (tmp_path / "transcriber-calls").exists()

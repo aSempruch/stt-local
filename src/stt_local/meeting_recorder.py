@@ -109,6 +109,7 @@ class JsonLinesProcess:
 class MeetingStatus:
     kind: str  # "recording", "transcribing" or "downloading"
     text: str
+    progress: float | None = None  # 0–1 when known
 
 
 @dataclass
@@ -203,16 +204,19 @@ class MeetingController:
             return MeetingStatus("recording", f"Recording Meeting · {format_offset(elapsed)}")
         job = self._job
         if job is not None and job.stage == "download":
-            return MeetingStatus("downloading", _download_text(job.progress))
+            return MeetingStatus("downloading", _download_text(job.progress), job.progress)
         if job is not None:
             text = "Transcribing Meeting"
             if self._queue:
                 text += f" 1 of {1 + len(self._queue)}"
-            if job.stage == "transcribe" and job.progress is not None:
-                text += f" · {int(job.progress * 100)}%"
-            return MeetingStatus("transcribing", text)
+            progress = job.progress if job.stage == "transcribe" else None
+            if progress is not None:
+                text += f" · {int(progress * 100)}%"
+            return MeetingStatus("transcribing", text, progress)
         if self._prefetch is not None:
-            return MeetingStatus("downloading", _download_text(self._prefetch_progress))
+            return MeetingStatus(
+                "downloading", _download_text(self._prefetch_progress), self._prefetch_progress
+            )
         return None
 
     def start_recording(self) -> None:

@@ -108,7 +108,7 @@ In a voice session, the prompt hook asks Claude to begin its final reply with a 
 
 STT Local can also record a meeting in any app, such as Zoom, Teams or a browser call, and write a Markdown transcript when it ends, with each line labelled **Me** or **Others** in the order it was spoken.
 
-Choose **Start Meeting Recording** from the menu bar. The icon turns into a record symbol and the status line shows the elapsed time. Choose **Stop Meeting Recording** when the meeting ends. There are no sounds and no on-screen pill, so nothing plays into the call. STT Local then transcribes the recording in a separate process; the status line shows its progress, and a notification names the transcript when it is ready. Dictation keeps working throughout, though it may be slower while a meeting is being transcribed.
+Choose **Start Meeting Recording** from the menu bar. The icon turns into a record symbol and the status line shows the elapsed time. Choose **Stop Meeting Recording** when the meeting ends. There are no sounds and no on-screen pill, so nothing plays into the call. STT Local then transcribes the recording in a separate process. Meanwhile the icon is a circle that fills clockwise as it goes (also while the model downloads), the menu's status line shows the exact percentage, and a notification names the transcript when it is ready. Dictation keeps working throughout, though it may be slower while a meeting is being transcribed.
 
 Transcripts are saved to `~/Documents/Meetings` by default, as files named like `2026-10-13 14.05 Meeting.md`. Change the folder with **Meeting transcripts** in **Settings…**, and open it with **Open Meetings Folder**. A transcript looks like this:
 
