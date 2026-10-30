@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 from .config import AppConfig, ConfigStore
@@ -89,6 +90,19 @@ class SettingsModel:
     @property
     def long_press_seconds(self) -> float:
         return self.config.long_press_seconds
+
+    @property
+    def meetings_folder(self) -> Path:
+        return Path(self.config.meetings_folder).expanduser()
+
+    def set_meetings_folder(self, path: str) -> None:
+        path = path.strip()
+        if not path:
+            raise ValueError("The meeting transcripts folder can't be empty")
+        if path == self.config.meetings_folder:
+            return
+        self.config = replace(self.config, meetings_folder=path)
+        self.store.save(self.config)
 
     def set_idle_unload_seconds(self, seconds: float) -> None:
         self._set_seconds("idle_unload_seconds", seconds, "The unload delay")

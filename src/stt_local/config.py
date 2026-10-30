@@ -8,6 +8,7 @@ from pathlib import Path
 from .constants import (
     APPLICATION_SUPPORT_DIR,
     DEFAULT_DOUBLE_TAP_SECONDS,
+    DEFAULT_MEETINGS_FOLDER,
     DEFAULT_IDLE_UNLOAD_SECONDS,
     DEFAULT_LONG_PRESS_SECONDS,
     SPEECH_VOICE,
@@ -22,6 +23,7 @@ class AppConfig:
     speech_voice: str = SPEECH_VOICE
     double_tap_seconds: float = DEFAULT_DOUBLE_TAP_SECONDS
     long_press_seconds: float = DEFAULT_LONG_PRESS_SECONDS
+    meetings_folder: str = DEFAULT_MEETINGS_FOLDER
 
 
 class ConfigStore:
@@ -38,6 +40,7 @@ class ConfigStore:
             voice = data.get("speech_voice", SPEECH_VOICE)
             double_tap = data.get("double_tap_seconds", DEFAULT_DOUBLE_TAP_SECONDS)
             long_press = data.get("long_press_seconds", DEFAULT_LONG_PRESS_SECONDS)
+            meetings_folder = data.get("meetings_folder", DEFAULT_MEETINGS_FOLDER)
             if not isinstance(selected, str) or not selected:
                 raise ValueError("selected_processor must be a non-empty string")
             if not isinstance(idle_seconds, (int, float)) or idle_seconds <= 0:
@@ -46,6 +49,8 @@ class ConfigStore:
                 raise ValueError("bias_prompt must be a string")
             if not isinstance(voice, str) or not voice:
                 raise ValueError("speech_voice must be a non-empty string")
+            if not isinstance(meetings_folder, str) or not meetings_folder.strip():
+                raise ValueError("meetings_folder must be a non-empty string")
             for name, value in (
                 ("double_tap_seconds", double_tap),
                 ("long_press_seconds", long_press),
@@ -59,6 +64,7 @@ class ConfigStore:
                 voice,
                 float(double_tap),
                 float(long_press),
+                meetings_folder,
             )
         except (FileNotFoundError, KeyError, TypeError, ValueError, json.JSONDecodeError):
             return AppConfig()

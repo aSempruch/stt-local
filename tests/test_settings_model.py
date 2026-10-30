@@ -1,3 +1,4 @@
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -69,6 +70,19 @@ def test_set_bias_prompt_strips_and_persists(tmp_path):
     assert model.bias_prompt == "Komodo, Hermes"
     assert store.load().bias_prompt == "Komodo, Hermes"
     assert store.load().idle_unload_seconds == 25
+
+
+def test_meetings_folder_expands_home_and_persists(tmp_path):
+    model, store, _ = make_model(tmp_path)
+
+    assert model.meetings_folder == Path.home() / "Documents" / "Meetings"
+
+    model.set_meetings_folder("  /tmp/x ")
+
+    assert model.meetings_folder == Path("/tmp/x")
+    assert store.load().meetings_folder == "/tmp/x"
+    with pytest.raises(ValueError, match="folder"):
+        model.set_meetings_folder("  ")
 
 
 class FakeApplication:

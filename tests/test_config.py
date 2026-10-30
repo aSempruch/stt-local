@@ -117,3 +117,29 @@ def test_invalid_gesture_timing_returns_defaults(tmp_path):
     )
 
     assert ConfigStore(tmp_path).load() == AppConfig()
+
+
+def test_meetings_folder_round_trips(tmp_path):
+    store = ConfigStore(tmp_path)
+    expected = AppConfig(meetings_folder="/tmp/m")
+
+    store.save(expected)
+
+    assert store.load() == expected
+
+
+def test_blank_meetings_folder_returns_defaults(tmp_path):
+    (tmp_path / "config.json").write_text(
+        '{"selected_processor": "casual_discord", "idle_unload_seconds": 30,'
+        ' "meetings_folder": ""}'
+    )
+
+    assert ConfigStore(tmp_path).load() == AppConfig()
+
+
+def test_config_without_meetings_folder_uses_default(tmp_path):
+    (tmp_path / "config.json").write_text(
+        '{"selected_processor": "casual_discord", "idle_unload_seconds": 30}'
+    )
+
+    assert ConfigStore(tmp_path).load().meetings_folder == "~/Documents/Meetings"
