@@ -54,7 +54,7 @@ def test_markdown_header_notes_and_lines():
     )
 
     assert text == (
-        "# Meeting · Mon 13 Oct 2026, 14:05\n"
+        "# Meeting · Tue 13 Oct 2026, 14:05\n"
         "\n"
         "47 min · Microphone: Wireless microphone · Granite Speech 4.1 2B\n"
         "\n"
@@ -74,7 +74,7 @@ def test_markdown_without_lines_says_no_speech():
     )
 
     assert text == (
-        "# Meeting · Mon 13 Oct 2026, 14:05\n"
+        "# Meeting · Tue 13 Oct 2026, 14:05\n"
         "\n"
         "1 min · Granite Speech 4.1 2B\n"
         "\n"
