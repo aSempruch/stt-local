@@ -34,9 +34,12 @@ from .constants import (
     VAD_MODEL,
 )
 from .meeting_audio import (
+    FRAME,
     Region,
     apply_mask,
+    cancel_echo,
     cut_at_interjections,
+    estimate_lag,
     leakage_mask,
     split_long_regions,
 )
@@ -67,7 +70,8 @@ def max_tokens_for(seconds: float) -> int:
 
 
 _EDGES = re.compile(r"^([^\w']*)(.*?)([^\w']*)$", re.DOTALL)
-SIMILAR = 0.6
+SIMILAR = 0.6  # sounds like a keyword: worth a second pass
+PHRASE_SIMILAR = 0.7  # close enough to replace with the keyword
 
 
 def _split_token(token: str) -> tuple[str, str, str]:
@@ -94,48 +98,60 @@ def has_near_keyword(text: str, keywords: str) -> bool:
     return any(_similar(candidate, target) for candidate in candidates for target in targets)
 
 
+def _phrases(keywords: str) -> list[list[str]]:
+    return [
+        re.findall(r"[\w']+", phrase) for phrase in keywords.split(",") if phrase.strip()
+    ]
+
+
 def apply_keyword_spellings(base: str, biased: str, keywords: str) -> str:
     """Take keyword spellings from the biased transcript into the punctuated
-    one, where the two line up and the original word sounds alike."""
-    vocabulary = _keyword_words(keywords)
+    one: each keyword phrase the biased pass wrote replaces the words it
+    lines up with, if those words sound like the whole phrase."""
     base_tokens, biased_tokens = base.split(), biased.split()
     base_core = [_split_token(token)[1].lower() for token in base_tokens]
-    biased_bare = [_split_token(token)[1] for token in biased_tokens]
-    biased_core = [word.lower() for word in biased_bare]
-    out: list[str] = []
+    biased_core = [_split_token(token)[1].lower() for token in biased_tokens]
+    # For each biased word, the span of base words its alignment block covers.
+    covers: list[tuple[int, int]] = [(0, 0)] * len(biased_core)
     matcher = difflib.SequenceMatcher(None, base_core, biased_core, autojunk=False)
     for op, i1, i2, j1, j2 in matcher.get_opcodes():
-        if op == "equal":
-            for i, j in zip(range(i1, i2), range(j1, j2)):
-                lead, _, trail = _split_token(base_tokens[i])
-                if biased_bare[j] in vocabulary:
-                    out.append(f"{lead}{biased_bare[j]}{trail}")
-                else:
-                    out.append(base_tokens[i])
-        elif (
-            op == "replace"
-            and all(word in vocabulary for word in biased_bare[j1:j2])
-            and _similar(" ".join(base_core[i1:i2]), " ".join(biased_core[j1:j2]))
-        ):
-            replacement = list(biased_bare[j1:j2])
-            replacement[0] = _split_token(base_tokens[i1])[0] + replacement[0]
-            replacement[-1] += _split_token(base_tokens[i2 - 1])[2]
-            out += replacement
-        else:
-            out += base_tokens[i1:i2]
-    return " ".join(out)
+        for j in range(j1, j2):
+            covers[j] = (i1 + (j - j1), i1 + (j - j1) + 1) if op == "equal" else (i1, i2)
+    replacements: list[tuple[int, int, list[str]]] = []
+    for phrase in _phrases(keywords):
+        lowered = [word.lower() for word in phrase]
+        for j in range(len(biased_core) - len(phrase) + 1):
+            if biased_core[j : j + len(phrase)] != lowered:
+                continue
+            first = min(covers[k][0] for k in range(j, j + len(phrase)))
+            last = max(covers[k][1] for k in range(j, j + len(phrase)))
+            if last <= first or any(a < last and first < b for a, b, _ in replacements):
+                continue
+            if difflib.SequenceMatcher(
+                None, " ".join(base_core[first:last]), " ".join(lowered)
+            ).ratio() >= PHRASE_SIMILAR:
+                replacements.append((first, last, phrase))
+    tokens = list(base_tokens)
+    for first, last, phrase in sorted(replacements, reverse=True):
+        words = list(phrase)
+        words[0] = _split_token(base_tokens[first])[0] + words[0]
+        words[-1] += _split_token(base_tokens[last - 1])[2]
+        tokens[first:last] = words
+    return " ".join(tokens)
 
 
 def tidy(text: str) -> str:
-    """Drop the unbalanced quote Granite sometimes puts at either end, and
-    capitalize the first letter, which it occasionally leaves lowercase."""
+    """Drop the quotes Granite sometimes puts around a line, or an unbalanced
+    one at either end."""
     text = text.strip()
+    if len(text) > 1 and text.count('"') == 2 and text[0] == text[-1] == '"':
+        text = text[1:-1].strip()  # Quotes around the whole line.
     if text.count('"') % 2:
         if text.startswith('"'):
             text = text[1:].lstrip()
         elif text.endswith('"'):
             text = text[:-1].rstrip()
-    return text[:1].upper() + text[1:]
+    return text
 
 
 def transcribe_segment(generate: Generate, clip: np.ndarray, keywords: str) -> str:
@@ -161,7 +177,10 @@ def plan_segments(
         return mic, []
     mic = np.pad(mic, (0, length - len(mic)))
     system = np.pad(system, (0, length - len(system)))
-    gated = apply_mask(mic, leakage_mask(mic, system))
+    # Echo cancellation removes most leakage, even from laptop speakers that
+    # reach the microphone louder than the user; the gate silences the rest.
+    cleaned = cancel_echo(mic, system, delay=estimate_lag(mic, system) * FRAME)
+    gated = apply_mask(cleaned, leakage_mask(cleaned, system))
     tracks = {"Me": gated, "Others": system}
     raw = {speaker: speech_regions(audio) for speaker, audio in tracks.items()}
     segments: list[Segment] = []

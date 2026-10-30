@@ -27,6 +27,19 @@ def test_merge_sorts_by_start_and_joins_same_speaker_within_gap():
     ]
 
 
+def test_merge_capitalizes_line_starts_but_not_joined_pieces():
+    lines = [
+        Line(0.0, 2.0, "Others", "which should take about"),
+        Line(2.1, 4.0, "Others", "three days."),
+        Line(5.0, 6.0, "Me", "sure."),
+    ]
+
+    assert [line.text for line in merge_lines(lines)] == [
+        "Which should take about three days.",
+        "Sure.",
+    ]
+
+
 def test_merge_keeps_same_speaker_lines_apart_after_long_gap():
     lines = [Line(0.0, 2.0, "Me", "One."), Line(7.0, 8.0, "Me", "Two.")]
 

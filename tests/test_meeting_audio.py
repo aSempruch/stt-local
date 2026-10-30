@@ -3,6 +3,8 @@ import numpy as np
 from stt_local.meeting_audio import (
     FRAME,
     apply_mask,
+    cancel_echo,
+    estimate_lag,
     cut_at_interjections,
     leakage_mask,
     split_long_regions,
@@ -172,3 +174,62 @@ def test_interjection_cut_lands_on_quiet_frame_and_respects_minimums():
         (4.8, 10.0),
     ]
 
+
+
+def room_echo(system, delay_seconds, gain_db, seed=7):
+    """System audio as a laptop mic hears it: delayed, quieter, and smeared
+    by a decaying room response."""
+    rng = np.random.default_rng(seed)
+    taps = int(0.15 * SR)
+    response = rng.normal(0, 1, taps) * np.exp(-np.arange(taps) / (0.03 * SR))
+    response *= 10 ** (gain_db / 20) / np.sqrt(np.sum(response**2))
+    echo = np.convolve(system, response)[: len(system)]
+    return delayed(echo.astype(np.float32), delay_seconds, 0) if delay_seconds else echo.astype(np.float32)
+
+
+def level_db(audio, spans):
+    selected = np.concatenate([audio[int(a * SR) : int(b * SR)] for a, b in spans])
+    return 10 * np.log10(np.mean(np.square(selected)) + 1e-12)
+
+
+ECHO_THEIRS = [(1, 7), (9, 15), (19, 26), (30, 37)]
+ECHO_MINE = [(7.5, 8.8), (15.5, 18.5), (26.5, 29.5)]
+
+
+def test_echo_cancellation_removes_loud_reverberant_speaker_leakage():
+    system = speech(40, ECHO_THEIRS, seed=3)
+    mine = speech(40, ECHO_MINE, level=0.03, seed=2)
+    mic = mine + room_echo(system, 0.04, -14) + floor_noise(40, db=-70)
+
+    cleaned = cancel_echo(mic, system)
+
+    assert len(cleaned) == len(mic)
+    assert level_db(mic, ECHO_THEIRS) - level_db(cleaned, ECHO_THEIRS) > 20
+    assert abs(level_db(cleaned, ECHO_MINE) - level_db(mine, ECHO_MINE)) < 1.5
+
+
+def test_echo_cancellation_handles_bluetooth_latency():
+    system = speech(40, ECHO_THEIRS, seed=3)
+    mic = room_echo(system, 0.25, -20) + floor_noise(40, db=-70)
+
+    cleaned = cancel_echo(mic, system, delay=int(0.25 * SR))
+
+    assert level_db(mic, ECHO_THEIRS) - level_db(cleaned, ECHO_THEIRS) > 20
+
+
+def test_echo_cancellation_leaves_mic_alone_without_leakage():
+    system = speech(20, [(1, 6), (9, 14)], seed=3)
+    mic = speech(20, [(6.5, 8.5), (14.5, 18)], level=0.03, seed=2) + floor_noise(20, db=-70)
+
+    cleaned = cancel_echo(mic, system)
+
+    assert abs(level_db(cleaned, [(6.5, 8.5), (14.5, 18)]) - level_db(mic, [(6.5, 8.5), (14.5, 18)])) < 0.5
+    assert np.allclose(cancel_echo(mic, np.zeros_like(mic)), mic, atol=1e-3)
+    assert len(cancel_echo(np.zeros(100, np.float32), np.zeros(100, np.float32))) == 100
+
+
+def test_estimate_lag_finds_the_leakage_delay():
+    system = with_word_pauses(speech(30, ECHO_THEIRS[:3], seed=3))
+    mic = speech(30, ECHO_MINE, level=0.03, seed=2) + delayed(system, 0.26, -20) + floor_noise(30, db=-75)
+
+    assert abs(estimate_lag(mic, system) * FRAME / SR - 0.26) <= 0.02

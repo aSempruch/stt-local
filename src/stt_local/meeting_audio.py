@@ -1,6 +1,7 @@
-"""Signal processing for meeting transcription: silence the microphone where
-it only hears the other side leaking from open earbuds or speakers, and cut
-both tracks into segments short enough to transcribe one at a time."""
+"""Signal processing for meeting transcription: remove the other side's
+voice that leaks from open earbuds or speakers into the microphone, silence
+whatever leakage is left, and cut both tracks into segments short enough to
+transcribe one at a time."""
 
 from __future__ import annotations
 
@@ -11,6 +12,11 @@ from .constants import SAMPLE_RATE
 FRAME = 320  # 20 ms at 16 kHz
 FADE = 160  # 10 ms
 Region = tuple[float, float]  # seconds
+
+ECHO_BLOCK = 256  # 16 ms
+ECHO_PARTITIONS = 16  # models 256 ms of room response after the delay
+ECHO_STEP = 0.5
+SUPPRESSION_FFT = 512
 
 
 def frame_energy(audio: np.ndarray) -> np.ndarray:
@@ -30,18 +36,8 @@ def leakage_mask(
         return np.zeros(0, bool)
     e_mic, e_sys = e_mic[:n], e_sys[:n]
     floor = float(np.percentile(e_mic, 10))
-    # Frames where the system plays something, within 30 dB of its peaks.
-    # Between turns it is often digitally silent, exactly while the user
-    # talks, so frames outside this set say nothing about leakage.
-    system_floor = max(float(np.percentile(e_sys, 99)) * 1e-3, 1e-10)
-    active = e_sys > system_floor
-    max_lag = min(int(max_lag_seconds * SAMPLE_RATE / FRAME), n - 1)
-    lag = _leakage_lag(
-        np.log(np.maximum(e_mic, floor)),
-        np.log(np.maximum(e_sys, system_floor)),
-        active,
-        max_lag,
-    )
+    system_floor = _system_floor(e_sys)
+    lag = _lag_from_energies(e_mic, e_sys, max_lag_seconds)
     shifted = np.concatenate([np.full(lag, 1e-12), e_sys[: n - lag]])
     # Leakage gain from a low percentile of the energy ratio while the system
     # is loud, so stretches where both talk don't inflate it.
@@ -54,6 +50,118 @@ def leakage_mask(
     mask = _close_gaps(mask, 15)
     mask = _drop_islands(mask, 6)
     return _dilate(mask, 10)
+
+
+def _system_floor(e_sys: np.ndarray) -> float:
+    """Frames above this play something, within 30 dB of the system's peaks.
+    Between turns the system track is often digitally silent, exactly while
+    the user talks, so frames below it say nothing about leakage."""
+    return max(float(np.percentile(e_sys, 99)) * 1e-3, 1e-10)
+
+
+def _lag_from_energies(
+    e_mic: np.ndarray, e_sys: np.ndarray, max_lag_seconds: float
+) -> int:
+    n = min(len(e_mic), len(e_sys))
+    if n < 2:
+        return 0
+    e_mic, e_sys = e_mic[:n], e_sys[:n]
+    system_floor = _system_floor(e_sys)
+    return _leakage_lag(
+        np.log(np.maximum(e_mic, float(np.percentile(e_mic, 10)))),
+        np.log(np.maximum(e_sys, system_floor)),
+        e_sys > system_floor,
+        min(int(max_lag_seconds * SAMPLE_RATE / FRAME), n - 1),
+    )
+
+
+def estimate_lag(
+    mic: np.ndarray, system: np.ndarray, max_lag_seconds: float = 1.5
+) -> int:
+    """How many 20 ms frames the system audio takes to reach the microphone."""
+    return _lag_from_energies(frame_energy(mic), frame_energy(system), max_lag_seconds)
+
+
+def cancel_echo(mic: np.ndarray, system: np.ndarray, delay: int = 0) -> np.ndarray:
+    """The microphone track with the system audio it picked up subtracted,
+    as a call app's echo canceller does. delay is the leakage delay in
+    samples. Recordings are processed after the fact, so the filter learns
+    the room on a first pass and cleans the whole track on a second."""
+    mic = np.asarray(mic, dtype=np.float32)
+    n = len(mic)
+    if n < 2 * ECHO_BLOCK or not np.any(system):
+        return mic.copy()
+    # Keep 32 ms before the estimated delay so early arrivals stay modelled.
+    shift = max(0, delay - 2 * ECHO_BLOCK)
+    reference = np.zeros(n, np.float32)
+    reference[shift:] = np.asarray(system[: n - shift], dtype=np.float32)
+    _, _, weights = _adaptive_filter(mic, reference)
+    residual, echo, _ = _adaptive_filter(mic, reference, weights)
+    return _suppress_residual(residual, echo)
+
+
+def _adaptive_filter(
+    mic: np.ndarray, reference: np.ndarray, weights: np.ndarray | None = None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Partitioned-block frequency-domain NLMS: returns the residual, the
+    echo estimate and the learned filter."""
+    block, partitions = ECHO_BLOCK, ECHO_PARTITIONS
+    bins = block + 1
+    weights = (
+        np.zeros((partitions, bins), complex) if weights is None else weights.copy()
+    )
+    history = np.zeros((partitions, bins), complex)
+    power = np.full(bins, 1e-8)
+    residual = mic.copy()
+    echo = np.zeros_like(mic)
+    previous = np.zeros(block, np.float32)
+    zeros = np.zeros(block, np.float32)
+    head = 0
+    for k in range(len(mic) // block):
+        span = slice(k * block, (k + 1) * block)
+        current = reference[span]
+        head = (head - 1) % partitions
+        history[head] = np.fft.rfft(np.concatenate([previous, current]))
+        previous = current
+        ordered = history[(head + np.arange(partitions)) % partitions]
+        estimate = np.fft.irfft((weights * ordered).sum(axis=0))[block:]
+        error = mic[span] - estimate
+        residual[span] = error
+        echo[span] = estimate
+        power = 0.95 * power + 0.05 * np.abs(history[head]) ** 2
+        if np.dot(current, current) < 1e-7:
+            continue  # Nothing playing, nothing to learn.
+        step = ECHO_STEP
+        if np.dot(mic[span], mic[span]) > 4 * np.dot(estimate, estimate) + 1e-7:
+            step *= 0.05  # Probably the user talking: barely adapt.
+        gradient = np.conj(ordered) * np.fft.rfft(np.concatenate([zeros, error]))
+        weights += (step / (partitions * power + 1e-6)) * gradient
+    return residual, echo, weights
+
+
+def _suppress_residual(
+    residual: np.ndarray, echo: np.ndarray, overestimate: float = 2.0, floor: float = 0.03
+) -> np.ndarray:
+    """Turn down the frequencies where the echo estimate outweighs what is
+    left, which removes the leakage a linear filter can't (loudspeaker
+    distortion) while keeping the user's voice where it dominates."""
+    size, hop = SUPPRESSION_FFT, SUPPRESSION_FFT // 2
+    # Square-root Hann windows on both sides sum to one at half overlap.
+    window = np.sqrt(np.hanning(size + 1)[:-1]).astype(np.float32)
+    padded_residual = np.pad(residual, (hop, hop + size))
+    padded_echo = np.pad(echo, (hop, hop + size))
+    out = np.zeros(len(padded_residual), np.float32)
+    frames = (len(padded_residual) - size) // hop + 1
+    for first in range(0, frames, 2048):  # bounded memory for long meetings
+        starts = np.arange(first, min(frames, first + 2048)) * hop
+        index = starts[:, None] + np.arange(size)[None, :]
+        e = np.fft.rfft(padded_residual[index] * window, axis=1)
+        y = np.fft.rfft(padded_echo[index] * window, axis=1)
+        gain = np.clip(1 - overestimate * np.abs(y) ** 2 / (np.abs(e) ** 2 + 1e-10), floor, 1.0)
+        cleaned = np.fft.irfft(e * gain, n=size, axis=1).astype(np.float32) * window
+        for start, row in zip(starts, cleaned):
+            out[start : start + size] += row
+    return out[hop : hop + len(residual)]
 
 
 def _leakage_lag(

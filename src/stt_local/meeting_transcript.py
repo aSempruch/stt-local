@@ -34,7 +34,10 @@ def merge_lines(lines: list[Line], join_gap: float = 5.0) -> list[Line]:
                 text=f"{previous.text} {line.text}",
             )
         else:
-            merged.append(line)
+            # Granite occasionally leaves a line's first letter lowercase;
+            # pieces joined onto a line keep theirs, as they may continue a
+            # sentence.
+            merged.append(replace(line, text=line.text[:1].upper() + line.text[1:]))
     return merged
 
 

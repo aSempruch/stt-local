@@ -27,6 +27,20 @@ def nonzero_regions(audio, threshold=1e-3):
     return [(a / SR, b / SR) for a, b in zip(edges[::2], edges[1::2])]
 
 
+def energy_regions(audio, threshold_db=-40):
+    """Stands in for Silero on noise-like speech: runs of 20 ms frames above
+    a level, joining gaps under 300 ms."""
+    n = len(audio) // 320
+    levels = 10 * np.log10(np.mean(audio[: n * 320].reshape(n, 320) ** 2, axis=1) + 1e-12)
+    regions = []
+    for start, end in nonzero_regions(np.repeat(levels > threshold_db, 320).astype(np.float32), 0.5):
+        if regions and start - regions[-1][1] < 0.3:
+            regions[-1] = (regions[-1][0], end)
+        else:
+            regions.append((start, end))
+    return [(start, end) for start, end in regions if end - start >= 0.25]
+
+
 WORDS = {0.2: "Hello, can you hear me?", 0.3: "Yes, loud and clear.", 0.4: "Great, let's start."}
 
 
@@ -116,19 +130,36 @@ def test_biased_pass_runs_only_with_keywords_and_a_near_miss():
     assert prompts == [mt.PROMPT, mt.build_prompt(KEYWORDS)]
 
 
-def test_tidy_drops_stray_quotes_and_capitalizes():
+def test_tidy_drops_stray_quotes():
     assert mt.tidy(' "Yes, loud and clear. ') == "Yes, loud and clear."
     assert mt.tidy('Yeah, I saw that."') == "Yeah, I saw that."
-    assert mt.tidy("sure") == "Sure"
+    assert mt.tidy("sure") == "sure"
     assert mt.tidy('He said "hi" there.') == 'He said "hi" there.'
     assert mt.tidy('"Quoted," she said.') == '"Quoted," she said.'
     assert mt.tidy("") == ""
 
 
+def test_tidy_unwraps_quotes_around_the_whole_line():
+    assert mt.tidy('"Yep, I can hear you just fine."') == "Yep, I can hear you just fine."
+    assert mt.tidy('"Which migration? What do you mean?"') == "Which migration? What do you mean?"
+    assert mt.tidy('"Yes," he said, "fine."') == '"Yes," he said, "fine."'
+
+
+def test_keyword_similarity_counts_the_rest_of_the_keyword_phrase():
+    assert mt.apply_keyword_spellings(
+        "Did you try the Clive Agent release?",
+        "did you try the Claub Agent release",
+        KEYWORDS,
+    ) == "Did you try the Claub Agent release?"
+    assert mt.apply_keyword_spellings(
+        "Call the travel agent.", "Call the Claub Agent", KEYWORDS
+    ) == "Call the travel agent."
+
+
 def test_segment_text_is_tidied():
     clip = np.ones(SR, np.float32)
 
-    assert mt.transcribe_segment(lambda *_: '"sure.', clip, "") == "Sure."
+    assert mt.transcribe_segment(lambda *_: '"sure.', clip, "") == "sure."
 
 
 def test_plan_segments_orders_both_sides_and_gates_mic():
@@ -144,7 +175,35 @@ def test_plan_segments_orders_both_sides_and_gates_mic():
         ("Me", 3.5, 5.5),
         ("Others", 6.0, 8.0),
     ]
-    assert not gated[: int(3.2 * SR)].any()
+    before_reply = slice(int(1.2 * SR), int(3.2 * SR))
+    leak_db = 10 * np.log10(np.mean(leak[before_reply] ** 2))
+    left_db = 10 * np.log10(np.mean(gated[before_reply] ** 2) + 1e-12)
+    assert leak_db - left_db > 20
+
+
+def test_plan_segments_cancels_loud_speaker_leakage_before_segmenting():
+    rng = np.random.default_rng(7)
+    system = np.zeros(int(12 * SR), np.float32)
+    for start, end in ((1.0, 4.0), (7.0, 10.0)):
+        a, b = int(start * SR), int(end * SR)
+        system[a:b] = rng.normal(0, 0.1, b - a) * (0.6 + 0.4 * np.sin(np.arange(b - a) / SR * 25))
+    # Laptop speakers: a long room response, loudspeaker distortion, and
+    # leakage louder at the microphone than the user's own voice.
+    taps = int(0.4 * SR)
+    response = rng.normal(0, 1, taps) * np.exp(-np.arange(taps) / (0.08 * SR))
+    response *= 10 ** (-10 / 20) / np.sqrt(np.sum(response**2))
+    played = np.tanh(system * 8) / 8
+    echo = np.convolve(played, response)[: len(system)].astype(np.float32)
+    mine = square(12, [(4.8, 6.4, 0.05)])
+    mic = mine + echo + rng.normal(0, 10 ** (-70 / 20), len(system)).astype(np.float32)
+
+    _, segments = mt.plan_segments(mic, system, energy_regions)
+
+    assert [(speaker, round(start, 1)) for speaker, start, _ in segments] == [
+        ("Others", 1.0),
+        ("Me", 4.8),
+        ("Others", 7.0),
+    ]
 
 
 def test_transcribe_meeting_writes_ordered_markdown_and_reports_progress(tmp_path):

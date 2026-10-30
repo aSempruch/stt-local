@@ -76,6 +76,7 @@ The app runs `stt-local-meeting-recorder --out <meeting dir> --exclude-pid <app 
 - For each buffer, the expected write position is (buffer host time − origin) × 16 000.
 - If the expected position is more than 10 ms ahead of what is written, the gap is filled with silence. If it is more than 10 ms behind, the overlap is dropped. Otherwise the buffer is appended.
 - This one rule covers the start offset, gaps, device switches and clock drift.
+- A process tap delivers buffers only while something is playing, so the system track's gaps of silence are written when audio resumes, and a meeting where nothing played leaves it empty.
 
 **Protocol.**
 - Events go to stdout, one JSON object per line:
@@ -174,30 +175,32 @@ The app runs `python -m stt_local.meeting_transcribe <meeting dir> --output-fold
 
 **Pipeline.**
 1. **Load.** Read both tracks as float32 and pad the shorter one with silence.
-2. **Leakage gate**, on the microphone track only, over 20 ms frames:
+2. **Echo cancellation**, on the microphone track: a partitioned-block frequency-domain NLMS filter (16 ms blocks, 256 ms of room response after the estimated leakage delay) learns how the system audio reaches the microphone on a first pass and subtracts it on a second, then a spectral suppressor turns down frequencies where the echo estimate outweighs what is left. A live test on laptop speakers, whose leakage reached the microphone louder than the user's voice, showed the gate alone kept 87% of leaked frames; with cancellation the transcript had no leaked lines. Leakage reduction measured 25–31 dB where the user was silent.
+3. **Leakage gate**, on the echo-cancelled microphone track, over 20 ms frames:
    - Estimate the leakage delay from 0–1.5 s: the lag with the highest correlation between the tracks' log-energy envelopes, over frames where the system plays within 30 dB of its peaks. Between turns the system track is often digitally silent exactly while the user talks, which would otherwise swamp the estimate.
    - Estimate the leakage gain: the 25th percentile of the microphone/system energy ratio, over frames where the delayed system energy is in the top half of those playing frames.
    - Keep frames more than 8 dB above the predicted leakage and more than 12 dB above the microphone's noise floor (its 10th-percentile energy).
    - Fill gaps under 300 ms, drop islands under 120 ms, and pad kept regions by 200 ms.
    - Apply the result with 10 ms fades; everything else becomes silence.
-3. **Voice activity.**
+4. **Voice activity.**
    - Run Silero VAD (`mlx-community/silero-vad`) on each track, with a 300 ms minimum silence and 150 ms speech padding.
    - A region longer than 20 s is split at the quietest frame between 15 and 20 s from its start, repeatedly.
-4. **Interjection cuts.**
+5. **Interjection cuts.**
    - A region is cut wherever the other track starts speaking more than 1 s inside it, at the quietest frame within ±0.5 s of that start.
    - A cut within 0.5 s of the region start or the previous cut is skipped, and pieces under 0.2 s are dropped.
    - This keeps a short "yeah" from the other side in its place rather than after a long turn.
-5. **Granite.**
+6. **Granite.**
    - Each segment is transcribed with the prompt `transcribe the speech with proper punctuation and capitalization.`
-   - When the Settings bias prompt is non-empty and that output has a word, or pair of words, that sounds like a bias word, the segment is transcribed again with `Keywords: <bias prompt>. transcribe the speech with proper punctuation and capitalization.` Only keyword spellings are taken from the second output, where the two outputs line up and the original word sounds alike, so a mumble can't turn into a keyword.
+   - When the Settings bias prompt is non-empty and that output has a word, or pair of words, that sounds like a bias word, the segment is transcribed again with `Keywords: <bias prompt>. transcribe the speech with proper punctuation and capitalization.` Only keyword spellings are taken from the second output: each keyword phrase it wrote replaces the words it lines up with in the first, if those words sound like the whole phrase (similarity 0.7 or more), so a mumble can't turn into a keyword and "travel agent" stays itself.
    - Segments under 1 s are padded with silence to 1 s.
    - Output is capped at 32 + 10 × segment-seconds tokens, which stops runaway repetition.
-   - An unbalanced quote at either end is dropped and the first letter is capitalized.
+   - Quotes around the whole output, or an unbalanced one at either end, are dropped.
    - Empty outputs are dropped.
-6. **Merge.**
+7. **Merge.**
    - Each segment becomes a line stamped with its start time; the lines are sorted by start.
    - A line joins the previous one when it has the same speaker and starts less than 5 s after the previous one ends.
-7. **Write.**
+   - Each merged line's first letter is capitalized; joined pieces keep their own case, as they may continue a sentence.
+8. **Write.**
    - Render the Markdown, write it atomically (a temporary file, then rename), report `done`, and the app deletes the meeting folder.
 
 ## Transcript
