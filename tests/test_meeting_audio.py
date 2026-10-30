@@ -30,6 +30,20 @@ def delayed(audio, seconds, gain_db):
     return out
 
 
+def with_word_pauses(audio, word=0.3, pause=0.15, seed=5):
+    """Pauses between words hold only 16-bit quantization noise, while the
+    gaps between turns stay exactly zero, as in synthesized speech."""
+    rng = np.random.default_rng(seed)
+    out = audio.copy()
+    talking = np.abs(audio) > 0
+    period = int((word + pause) * SR)
+    for start in range(int(word * SR), len(out), period):
+        end = min(len(out), start + int(pause * SR))
+        lsb = rng.integers(-1, 2, end - start) / 32768
+        out[start:end] = np.where(talking[start:end], lsb, 0.0)
+    return out
+
+
 def floor_noise(seconds, db=-60, seed=1):
     rng = np.random.default_rng(seed)
     return rng.normal(0, 10 ** (db / 20), int(seconds * SR)).astype(np.float32)
@@ -67,6 +81,26 @@ def test_gate_drops_speaker_leakage_but_keeps_own_speech():
     own = frames_in(MINE, len(mask))
     near_own = frames_in(MINE, len(mask), margin=0.5)
     leak_only = frames_in(THEIRS, len(mask)) & ~near_own
+    assert mask[own].mean() > 0.90
+    assert mask[leak_only].mean() < 0.10
+
+
+def test_gate_drops_faint_leakage_when_turns_alternate_with_digital_silence():
+    # Turn-taking makes the mic loud exactly while the system track is
+    # digitally silent, which must not throw off the leakage delay.
+    mine = [(1.0, 3.0), (5.5, 7.0), (10.5, 13.0), (16.0, 17.0), (20.5, 23.0)]
+    theirs = [(3.2, 5.3), (7.2, 10.3), (13.2, 15.8), (17.2, 20.3), (23.2, 27.0)]
+    system = with_word_pauses(speech(30, theirs, seed=3))
+    mic = (
+        with_word_pauses(speech(30, mine, seed=2))
+        + delayed(system, 0.2, -30)
+        + floor_noise(30, db=-75)
+    )
+
+    mask = leakage_mask(mic, system)
+
+    own = frames_in(mine, len(mask))
+    leak_only = frames_in(theirs, len(mask)) & ~frames_in(mine, len(mask), margin=0.5)
     assert mask[own].mean() > 0.90
     assert mask[leak_only].mean() < 0.10
 

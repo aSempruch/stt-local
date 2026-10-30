@@ -20,7 +20,7 @@ Throwaway spikes on the M3 Pro (macOS 26.6.1) decided the design:
 - **Accuracy.** On 383 utterances of the AMI meeting corpus (EN2002a, 300–900 s), per-utterance word error rate was 9.1% for Granite Speech 4.1 2B, 14.4% for Parakeet TDT 0.6B v2 and 23.7% for Whisper large-v3-turbo. Whisper produced a 75-word invention on a clip that was just "yeah". The public Open ASR leaderboard ranks Granite and Cohere Transcribe level on AMI (7.06 and 7.02); Cohere's weights are gated behind a Hugging Face login, Granite's are open under Apache-2.0.
 - **Ordering.** In a two-track rebuild of that meeting, putting the lines in order cost 3–4 points of error for every model and method, whether ordered by the model's own timestamps or by voice-activity segments. Order comes from the two separate tracks, so a model without timestamps loses nothing.
 - **Microphone leakage.** Open earbuds leak the other side into the microphone. An energy-based leakage gate kept all of the user's lines with headphones, cut a −16 dB speaker-leakage case from 37 lines to 12 (all the user's), and turned 17 invented lines on a quiet microphone into none.
-- **Prompts.** The punctuation prompt cost nothing in accuracy (9.5% against 9.1%). Adding a keyword list fixed spellings such as "Claub Agent" and "Pogoria" and brought the error rate back to 9.1%. In 383 AMI utterances it put a keyword into one: a 0.4 s mumble at −51 dBFS came out as "Pogoria".
+- **Prompts.** The punctuation prompt cost nothing in accuracy (9.5% against 9.1%). Adding a keyword list fixed spellings such as "Claub Agent" and "Pogoria" and brought the error rate back to 9.1%. In 383 AMI utterances it put a keyword into one: a 0.4 s mumble at −51 dBFS came out as "Pogoria". Building it showed the cost: with any keyword prompt, Granite drops much of its punctuation (3–12 marks on ten test sentences, against 20 without) and sometimes adds a word, so keywords now only correct spellings in a second pass.
 - **Cost.** Granite took 110 s for two 600 s tracks. It runs at about 8× realtime on speech, so an hour of meeting takes roughly 5–8 minutes, depending on how much of it is speech. The download is 4.6 GB. Memory peaks near 8 GB on 20 s segments: 4.6 GB of weights plus a transient that is still 2 GB on 5 s segments.
 
 ## Architecture
@@ -175,8 +175,8 @@ The app runs `python -m stt_local.meeting_transcribe <meeting dir> --output-fold
 **Pipeline.**
 1. **Load.** Read both tracks as float32 and pad the shorter one with silence.
 2. **Leakage gate**, on the microphone track only, over 20 ms frames:
-   - Estimate the leakage delay from 0–1.5 s, by cross-correlating the tracks' log-energy envelopes.
-   - Estimate the leakage gain: the 25th percentile of the microphone/system energy ratio, over frames where the delayed system energy is in its top 30%.
+   - Estimate the leakage delay from 0–1.5 s: the lag with the highest correlation between the tracks' log-energy envelopes, over frames where the system plays within 30 dB of its peaks. Between turns the system track is often digitally silent exactly while the user talks, which would otherwise swamp the estimate.
+   - Estimate the leakage gain: the 25th percentile of the microphone/system energy ratio, over frames where the delayed system energy is in the top half of those playing frames.
    - Keep frames more than 8 dB above the predicted leakage and more than 12 dB above the microphone's noise floor (its 10th-percentile energy).
    - Fill gaps under 300 ms, drop islands under 120 ms, and pad kept regions by 200 ms.
    - Apply the result with 10 ms fades; everything else becomes silence.
@@ -189,10 +189,10 @@ The app runs `python -m stt_local.meeting_transcribe <meeting dir> --output-fold
    - This keeps a short "yeah" from the other side in its place rather than after a long turn.
 5. **Granite.**
    - Each segment is transcribed with the prompt `transcribe the speech with proper punctuation and capitalization.`
-   - When the Settings bias prompt is non-empty, ` Keywords: <bias prompt>` is appended.
+   - When the Settings bias prompt is non-empty and that output has a word, or pair of words, that sounds like a bias word, the segment is transcribed again with `Keywords: <bias prompt>. transcribe the speech with proper punctuation and capitalization.` Only keyword spellings are taken from the second output, where the two outputs line up and the original word sounds alike, so a mumble can't turn into a keyword.
    - Segments under 1 s are padded with silence to 1 s.
    - Output is capped at 32 + 10 × segment-seconds tokens, which stops runaway repetition.
-   - If an output consists only of words from the keyword list, the segment is transcribed again without keywords, and that result is used.
+   - An unbalanced quote at either end is dropped and the first letter is capitalized.
    - Empty outputs are dropped.
 6. **Merge.**
    - Each segment becomes a line stamped with its start time; the lines are sorted by start.

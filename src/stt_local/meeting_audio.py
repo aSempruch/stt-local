@@ -29,25 +29,51 @@ def leakage_mask(
     if n == 0:
         return np.zeros(0, bool)
     e_mic, e_sys = e_mic[:n], e_sys[:n]
-    # Leakage arrives late (Bluetooth output latency): find the lag at which
-    # the microphone's log-energy envelope best follows the system's.
-    l_mic = np.log(e_mic) - np.log(e_mic).mean()
-    l_sys = np.log(e_sys) - np.log(e_sys).mean()
+    floor = float(np.percentile(e_mic, 10))
+    # Frames where the system plays something, within 30 dB of its peaks.
+    # Between turns it is often digitally silent, exactly while the user
+    # talks, so frames outside this set say nothing about leakage.
+    system_floor = max(float(np.percentile(e_sys, 99)) * 1e-3, 1e-10)
+    active = e_sys > system_floor
     max_lag = min(int(max_lag_seconds * SAMPLE_RATE / FRAME), n - 1)
-    scores = [np.dot(l_mic[lag:], l_sys[: n - lag]) / (n - lag) for lag in range(max_lag + 1)]
-    lag = int(np.argmax(scores))
+    lag = _leakage_lag(
+        np.log(np.maximum(e_mic, floor)),
+        np.log(np.maximum(e_sys, system_floor)),
+        active,
+        max_lag,
+    )
     shifted = np.concatenate([np.full(lag, 1e-12), e_sys[: n - lag]])
     # Leakage gain from a low percentile of the energy ratio while the system
     # is loud, so stretches where both talk don't inflate it.
-    loud = shifted > np.percentile(shifted, 70)
+    playing = shifted[shifted > system_floor]
+    loud = shifted > np.percentile(playing, 50) if len(playing) else np.zeros(n, bool)
     gain = float(np.percentile(e_mic[loud] / shifted[loud], 25)) if loud.any() else 0.0
-    floor = float(np.percentile(e_mic, 10))
     predicted = floor + gain * shifted
     mask = e_mic > np.maximum(predicted * 10 ** (8 / 10), floor * 10 ** (12 / 10))
     # Fill gaps under 300 ms, drop islands under 120 ms, pad by 200 ms.
     mask = _close_gaps(mask, 15)
     mask = _drop_islands(mask, 6)
     return _dilate(mask, 10)
+
+
+def _leakage_lag(
+    l_mic: np.ndarray, l_sys: np.ndarray, active: np.ndarray, max_lag: int
+) -> int:
+    """The delay, in frames, at which the microphone's log energy best follows
+    the system's while the system is playing (Bluetooth output latency)."""
+    n = len(l_mic)
+    best, best_corr = 0, -np.inf
+    for lag in range(max_lag + 1):
+        selected = active[: n - lag]
+        if selected.sum() < 25:
+            continue
+        x, y = l_mic[lag:][selected], l_sys[: n - lag][selected]
+        if x.std() == 0 or y.std() == 0:
+            continue
+        corr = float(np.corrcoef(x, y)[0, 1])
+        if corr > best_corr:
+            best, best_corr = lag, corr
+    return best
 
 
 def _runs(mask: np.ndarray, value: bool) -> list[tuple[int, int]]:

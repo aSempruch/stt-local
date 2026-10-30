@@ -98,7 +98,9 @@ NOT_DOWNLOADING = -1.0
 MIN_REPORTED_DOWNLOAD_BYTES = 1_000_000
 
 
-def download_model(model_name: str, report: Callable[[float], None]) -> None:
+def download_model(
+    model_name: str, report: Callable[[float], None], revision: str | None = None
+) -> None:
     """Fetch the model into the Hugging Face cache, reporting the fraction of
     bytes written so far. A cached model returns without reporting."""
     from huggingface_hub import snapshot_download
@@ -126,7 +128,7 @@ def download_model(model_name: str, report: Callable[[float], None]) -> None:
             return super().update(n)
 
     try:
-        snapshot_download(repo_id=model_name, tqdm_class=Progress)
+        snapshot_download(repo_id=model_name, revision=revision, tqdm_class=Progress)
     finally:
         report(NOT_DOWNLOADING)
 

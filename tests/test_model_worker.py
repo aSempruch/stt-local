@@ -347,7 +347,7 @@ def test_download_model_reports_written_bytes_then_clears(monkeypatch):
 
     reports = []
 
-    def fake_snapshot_download(repo_id, tqdm_class):
+    def fake_snapshot_download(repo_id, tqdm_class, revision=None):
         assert repo_id == "org/model"
         files = tqdm_class(total=2, unit="it", desc="Fetching 2 files", disable=True)
         files.update(1)
@@ -365,6 +365,20 @@ def test_download_model_reports_written_bytes_then_clears(monkeypatch):
     model_worker.download_model("org/model", reports.append)
 
     assert reports == [400_100 / 2_000_000, 1.0, model_worker.NOT_DOWNLOADING]
+
+
+def test_download_model_passes_revision(monkeypatch):
+    import huggingface_hub
+
+    calls = []
+    monkeypatch.setattr(
+        huggingface_hub, "snapshot_download", lambda **kwargs: calls.append(kwargs)
+    )
+
+    model_worker.download_model("org/model", lambda _fraction: None, revision="abc123")
+
+    assert calls[0]["repo_id"] == "org/model"
+    assert calls[0]["revision"] == "abc123"
 
 
 def test_download_model_clears_progress_after_failure(monkeypatch):
