@@ -418,3 +418,36 @@ def test_json_lines_process_skips_lines_that_are_not_json(tmp_path):
 
     assert process.exit_code() == 0
     assert process.drain() == [{"stage": "done"}]
+
+
+def test_exit_is_seen_even_if_a_grandchild_keeps_stdout_open(tmp_path):
+    script = tmp_path / "leaves_child.py"
+    script.write_text(
+        "import subprocess, json\n"
+        "subprocess.Popen(['sleep', '30'])\n"
+        "print(json.dumps({'stage': 'done'}), flush=True)\n"
+    )
+
+    process = JsonLinesProcess([sys.executable, str(script)])
+    deadline = time.monotonic() + 8
+    while process.exit_code() is None and time.monotonic() < deadline:
+        time.sleep(0.05)
+
+    assert process.exit_code() == 0
+    assert process.drain() == [{"stage": "done"}]
+
+
+def test_queued_meeting_whose_folder_was_deleted_is_skipped(setup):
+    make, notes, errors, clock, tmp_path = setup
+    store = MeetingStore(tmp_path / "meetings")
+    gone = store.create(datetime(2026, 10, 13, 14, 5).astimezone())
+    kept = store.create(datetime(2026, 10, 14, 9, 0).astimezone())
+    controller = make()
+    store.delete(gone)
+
+    controller.transcribe_unfinished()
+    pump(controller, lambda: not controller.busy)
+
+    assert not kept.path.exists()
+    assert gone.path.name not in (tmp_path / "transcriber-calls").read_text()
+    assert errors == []

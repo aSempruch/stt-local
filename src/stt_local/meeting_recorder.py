@@ -27,6 +27,7 @@ from .meeting_store import Meeting, MeetingState, MeetingStore
 from .meeting_transcript import format_offset
 
 STOP_TIMEOUT_SECONDS = 5.0
+READ_GRACE_SECONDS = 2.0
 KILL_TIMEOUT_SECONDS = 2.0
 PERMISSION_HINT = (
     "Check System Settings → Privacy & Security → Screen & System Audio Recording."
@@ -43,6 +44,7 @@ class JsonLinesProcess:
             args, stdin=subprocess.PIPE, stdout=subprocess.PIPE
         )
         self._events: queue.Queue[dict[str, Any]] = queue.Queue()
+        self._exited_at: float | None = None
         self._reader = threading.Thread(target=self._read, daemon=True)
         self._reader.start()
 
@@ -72,10 +74,15 @@ class JsonLinesProcess:
             pass
 
     def exit_code(self) -> int | None:
-        """None until the process has exited and all its output is read."""
-        if self._reader.is_alive():
-            return None
-        return self._process.poll()
+        """None until the process has exited and its output is read. A
+        grandchild that inherited stdout can hold the pipe open, so after a
+        grace period the exit counts even without end of file."""
+        code = self._process.poll()
+        if code is None or not self._reader.is_alive():
+            return code
+        if self._exited_at is None:
+            self._exited_at = time.monotonic()
+        return code if time.monotonic() - self._exited_at >= READ_GRACE_SECONDS else None
 
     def wait(self, timeout: float) -> int | None:
         try:
@@ -401,8 +408,9 @@ class MeetingController:
         # Two downloads of the same files would only wait on each other.
         if self._job is not None or not self._queue or self._prefetch is not None:
             return
-        meeting = self._queue.popleft()
-        meeting = self.store.load(meeting.path) or meeting
+        meeting = self.store.load(self._queue.popleft().path)
+        if meeting is None:
+            return  # Its folder was deleted while it waited.
         meeting = self.store.update(meeting, state=MeetingState.TRANSCRIBING, error=None)
         args = [
             *self.transcriber_command,
