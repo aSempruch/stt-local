@@ -42,6 +42,12 @@ def milliseconds_options(
     return [(seconds, milliseconds_label(seconds)) for seconds in values]
 
 
+def abbreviate_home(path: Path) -> str:
+    home = str(Path.home())
+    text = str(path)
+    return "~" + text[len(home) :] if text == home or text.startswith(home + "/") else text
+
+
 def bring_to_front(application: Any, window: Any) -> None:
     """Show a window above other apps' windows and give it keyboard focus."""
     import AppKit
@@ -194,6 +200,9 @@ class SettingsWindowController:
                     if processor.key == outer.model.selected_processor:
                         selected_index = index
                 self.popup.selectItemAtIndex_(selected_index)
+                self.meetings_label.setStringValue_(
+                    abbreviate_home(outer.model.meetings_folder)
+                )
 
                 self.fillSecondsPopup(
                     self.idle_popup,
@@ -223,6 +232,25 @@ class SettingsWindowController:
                     popup.lastItem().setRepresentedObject_(seconds)
                     if seconds == current:
                         popup.selectItemAtIndex_(index)
+
+            @objc.IBAction
+            def chooseMeetingsFolder_(self, _sender):
+                panel = AppKit.NSOpenPanel.openPanel()
+                panel.setCanChooseDirectories_(True)
+                panel.setCanChooseFiles_(False)
+                panel.setCanCreateDirectories_(True)
+                panel.setPrompt_("Choose")
+                panel.setMessage_("Choose where meeting transcripts are saved.")
+                folder = outer.model.meetings_folder
+                if folder.is_dir():
+                    panel.setDirectoryURL_(Foundation.NSURL.fileURLWithPath_(str(folder)))
+                if panel.runModal() != AppKit.NSModalResponseOK:
+                    return
+                try:
+                    outer.model.set_meetings_folder(str(panel.URL().path()))
+                except Exception as exc:
+                    outer.notify("Meeting folder save failed", str(exc))
+                self.refreshUI()
 
             @objc.IBAction
             def selectLongPress_(self, sender):
@@ -316,7 +344,7 @@ class SettingsWindowController:
             | AppKit.NSWindowStyleMaskMiniaturizable
         )
         window = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-            Foundation.NSMakeRect(0, 0, 480, 585),
+            Foundation.NSMakeRect(0, 0, 480, 655),
             style,
             AppKit.NSBackingStoreBuffered,
             False,
@@ -326,6 +354,27 @@ class SettingsWindowController:
         controller = Controller.alloc().initWithWindow_(window)
         window.setDelegate_(controller)
         content = window.contentView()
+
+        meetings_title = AppKit.NSTextField.labelWithString_("Meeting transcripts")
+        meetings_title.setFrame_(Foundation.NSMakeRect(24, 612, 150, 24))
+        content.addSubview_(meetings_title)
+        meetings_label = AppKit.NSTextField.labelWithString_("")
+        meetings_label.setFrame_(Foundation.NSMakeRect(165, 612, 190, 24))
+        meetings_label.setLineBreakMode_(AppKit.NSLineBreakByTruncatingMiddle)
+        content.addSubview_(meetings_label)
+        controller.meetings_label = meetings_label
+        choose = AppKit.NSButton.buttonWithTitle_target_action_(
+            "Choose…", controller, "chooseMeetingsFolder:"
+        )
+        choose.setFrame_(Foundation.NSMakeRect(360, 607, 96, 32))
+        content.addSubview_(choose)
+        meetings_hint = AppKit.NSTextField.wrappingLabelWithString_(
+            "Where meeting transcripts are saved."
+        )
+        meetings_hint.setFont_(AppKit.NSFont.systemFontOfSize_(11))
+        meetings_hint.setTextColor_(AppKit.NSColor.secondaryLabelColor())
+        meetings_hint.setFrame_(Foundation.NSMakeRect(24, 584, 426, 18))
+        content.addSubview_(meetings_hint)
 
         gesture_rows = [
             ("Long press to cancel", "selectLongPress:", "long_press_popup", 535),
@@ -393,8 +442,9 @@ class SettingsWindowController:
         controller.bias_field = bias_field
 
         bias_hint = AppKit.NSTextField.wrappingLabelWithString_(
-            "Names, jargon and spellings Whisper should expect. Saved when you "
-            "press Return or leave the field; applies to the next recording."
+            "Names, jargon and spellings to expect, comma-separated. Dictation "
+            "and meeting transcripts both use them. Saved when you press Return "
+            "or leave the field."
         )
         bias_hint.setFont_(AppKit.NSFont.systemFontOfSize_(11))
         bias_hint.setTextColor_(AppKit.NSColor.secondaryLabelColor())

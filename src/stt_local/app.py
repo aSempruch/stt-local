@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
+from collections.abc import Callable
 from typing import Any
 
 from .alerts import menu_error_title, post_notification, report_error
 from .audio import AudioRecorder
 from .config import ConfigStore
 from .control import CommandHandler, ControlServer, ControlSocketInUse
-from .constants import POLL_INTERVAL_SECONDS, PROCESSORS_DIR
+from .constants import MEETING_RECORDER, POLL_INTERVAL_SECONDS, PROCESSORS_DIR
 from .coordinator import DictationCoordinator, DictationState
 from .hotkey import RightCommandGestures, RightCommandMonitor
+from .meeting_recorder import MeetingController, MeetingStatus
+from .meeting_store import MeetingStore
 from .model_worker import WorkerManager
 from .output import MacOutput, call_on_main_thread
 from .overlay import DictationOverlay
@@ -49,12 +53,24 @@ def status_symbol_name(state: DictationState, *, model_loaded: bool) -> str:
     }[state]
 
 
+def meeting_symbol_name(kind: str) -> str:
+    return "record.circle" if kind == "recording" else "text.bubble"
+
+
 def status_display(
-    state: DictationState, error: str | None, *, model_loaded: bool
+    state: DictationState,
+    error: str | None,
+    *,
+    model_loaded: bool,
+    meeting: MeetingStatus | None = None,
 ) -> tuple[str, str]:
-    """Symbol and menu text; a reported error stays visible until the next
-    dictation starts, because notifications can be missed or disabled."""
-    if error is not None and state in {DictationState.IDLE, DictationState.ERROR}:
+    """Symbol and menu text. Active dictation comes first, then a meeting
+    recording or transcription. A reported error stays visible until the
+    next dictation starts, because notifications can be missed or disabled."""
+    dictation_idle = state in {DictationState.IDLE, DictationState.ERROR}
+    if dictation_idle and meeting is not None:
+        return meeting_symbol_name(meeting.kind), meeting.text
+    if error is not None and dictation_idle:
         state, text = DictationState.ERROR, error
     else:
         text = status_presentation(state)[1]
@@ -78,13 +94,17 @@ def make_status_icon(symbol_name: str) -> Any:
 def restart_if_audio_unusable(
     coordinator: DictationCoordinator,
     *,
+    busy: Callable[[], bool] = lambda: False,
     restart: Any = os.execv,
     executable: str | None = None,
     script: str | None = None,
 ) -> None:
+    # Replacing the process closes the meeting helpers' pipes, which would
+    # end a recording or a transcription.
     if (
         coordinator.state is DictationState.IDLE
         and coordinator.recorder.needs_restart
+        and not busy()
     ):
         executable = executable or sys.executable
         script = script or sys.argv[0]
@@ -123,6 +143,7 @@ if rumps is not None:
             speech: SpeechManager,
             control: ControlServer | None = None,
             overlay: DictationOverlay | None = None,
+            meetings: MeetingController | None = None,
         ) -> None:
             super().__init__("STT Local", title=None, quit_button=None)
             self._icon_nsimage = make_status_icon(
@@ -138,6 +159,9 @@ if rumps is not None:
             self.speech = speech
             self.control = control
             self.overlay = overlay
+            self.meetings = meetings
+            self._meeting_status: MeetingStatus | None = None
+            self._meeting_menu_state: tuple[bool, int] | None = None
             self.status_item = rumps.MenuItem("Idle")
             self._state = DictationState.IDLE
             self._error: str | None = None
@@ -163,10 +187,28 @@ if rumps is not None:
                 "Stop Speaking", callback=self._stop_speaking
             )
             self._speaking_separator = rumps.rumps.SeparatorMenuItem()
+            meeting_items: list[Any] = []
+            if self.meetings is not None:
+                self._meeting_item = rumps.MenuItem(
+                    "Start Meeting Recording", callback=self._toggle_meeting
+                )
+                self._unfinished_item = rumps.MenuItem(
+                    "Transcribe Unfinished Recordings",
+                    callback=self._transcribe_unfinished,
+                )
+                meeting_items = [
+                    self._meeting_item,
+                    rumps.MenuItem(
+                        "Open Meetings Folder", callback=self._open_meetings_folder
+                    ),
+                    self._unfinished_item,
+                    None,
+                ]
             self._menu.clear()
             self.menu = [
                 self.status_item,
                 None,
+                *meeting_items,
                 processor_heading,
                 *self.processor_menu.build_items(),
                 rumps.MenuItem("Reload Processors", callback=self._reload_processors),
@@ -178,6 +220,7 @@ if rumps is not None:
                 rumps.MenuItem("Quit STT Local", callback=self._quit),
             ]
             self._render_speaking()
+            self._render_meetings()
 
         def update_status(self, state: DictationState) -> None:
             if state not in {DictationState.IDLE, DictationState.ERROR}:
@@ -189,7 +232,10 @@ if rumps is not None:
 
         def _render_status(self) -> None:
             symbol, status = status_display(
-                self._state, self._error, model_loaded=self._model_loaded
+                self._state,
+                self._error,
+                model_loaded=self._model_loaded,
+                meeting=self._meeting_status,
             )
             self.title = status_presentation(self._state)[0]
             self._icon_nsimage = make_status_icon(symbol)
@@ -206,8 +252,33 @@ if rumps is not None:
             self._stop_speaking_item.hidden = hidden
             self._speaking_separator._menuitem.setHidden_(hidden)
 
+        def _render_meetings(self) -> None:
+            if self.meetings is None:
+                return
+            recording = self.meetings.is_recording
+            unfinished = self.meetings.unfinished_count
+            self._meeting_menu_state = (recording, unfinished)
+            self._meeting_item.title = (
+                "Stop Meeting Recording" if recording else "Start Meeting Recording"
+            )
+            self._unfinished_item.title = f"Transcribe Unfinished Recordings ({unfinished})"
+            self._unfinished_item.hidden = unfinished == 0
+
+        def _refresh_meetings(self) -> None:
+            if self.meetings is None:
+                return
+            self.meetings.refresh()
+            status = self.meetings.status()
+            if status != self._meeting_status:
+                self._meeting_status = status
+                self._render_status()
+            state = (self.meetings.is_recording, self.meetings.unfinished_count)
+            if state != self._meeting_menu_state:
+                self._render_meetings()
+
         def _tick(self, _timer: Any) -> None:
             self.coordinator.refresh()
+            self._refresh_meetings()
             self._show_download_progress()
             # The worker loads and unloads on its own threads and timers.
             model_loaded = self.coordinator.worker.is_ready
@@ -220,7 +291,10 @@ if rumps is not None:
                 self._render_speaking()
             # A timed-out CoreAudio call can leave PortAudio locked in this
             # process. Replace it once transcription is finished.
-            restart_if_audio_unusable(self.coordinator)
+            restart_if_audio_unusable(
+                self.coordinator,
+                busy=lambda: self.meetings is not None and self.meetings.busy,
+            )
 
         def _show_download_progress(self) -> None:
             progress = self.coordinator.worker.download_progress
@@ -235,6 +309,25 @@ if rumps is not None:
                     "This happens once and can take a few minutes. Your "
                     "dictation will be transcribed when it finishes.",
                 )
+
+        def _toggle_meeting(self, _sender: Any) -> None:
+            if self.meetings.is_recording:
+                self.meetings.stop_recording()
+            else:
+                self.meetings.start_recording()
+            self._refresh_meetings()
+
+        def _transcribe_unfinished(self, _sender: Any) -> None:
+            self.meetings.transcribe_unfinished()
+            self._refresh_meetings()
+
+        def _open_meetings_folder(self, _sender: Any) -> None:
+            folder = self.settings_model.meetings_folder
+            try:
+                folder.mkdir(parents=True, exist_ok=True)
+                subprocess.Popen(["open", str(folder)])
+            except OSError as exc:
+                self.show_error("Couldn't open the meetings folder", str(exc))
 
         def _stop_speaking(self, _sender: Any) -> None:
             self.speech.stop()
@@ -254,6 +347,8 @@ if rumps is not None:
                 self.overlay.close()
             self.coordinator.shutdown()
             self.speech.close()
+            if self.meetings is not None:
+                self.meetings.shutdown()
             rumps.quit_application()
 
 
@@ -337,6 +432,15 @@ def build_app() -> Any:
         double_tap_seconds=lambda: settings_model.double_tap_seconds,
         long_press_seconds=lambda: settings_model.long_press_seconds,
     )
+    meetings = MeetingController(
+        store=MeetingStore(),
+        recorder_path=MEETING_RECORDER,
+        output_folder=lambda: settings_model.meetings_folder,
+        keywords=lambda: settings_model.bias_prompt,
+        notify=post_notification,
+        report_error=notify,
+        exclude_pid=os.getpid(),
+    )
     control: ControlServer | None = ControlServer(CommandHandler(speech))
     try:
         control.start()
@@ -352,6 +456,7 @@ def build_app() -> Any:
         speech=speech,
         control=control,
         overlay=DictationOverlay(recorder.recent_levels),
+        meetings=meetings,
     )
     coordinator.status_callback = app.update_status
     app.update_status(DictationState.IDLE)

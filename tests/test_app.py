@@ -4,6 +4,7 @@ from stt_local import app
 from stt_local.app import status_presentation
 from stt_local.config import AppConfig, ConfigStore
 from stt_local.coordinator import DictationState
+from stt_local.meeting_recorder import MeetingStatus
 from stt_local.processors import ProcessorRegistry
 from stt_local.settings import SettingsModel
 
@@ -101,7 +102,49 @@ def test_reported_error_stays_visible_until_next_dictation():
     )
 
 
-def make_dictation_app(tmp_path, monkeypatch):
+def test_meeting_status_shows_while_dictation_idle_and_yields_to_dictation():
+    recording = MeetingStatus("recording", "Recording Meeting · 00:05")
+    transcribing = MeetingStatus("transcribing", "Transcribing Meeting · 40%")
+    downloading = MeetingStatus("downloading", "Downloading Meeting Model · 35%")
+    display = lambda state, error, meeting: app.status_display(
+        state, error, model_loaded=True, meeting=meeting
+    )
+
+    assert display(DictationState.IDLE, None, recording) == (
+        "record.circle",
+        "Recording Meeting · 00:05",
+    )
+    assert display(DictationState.IDLE, "Old error", recording)[0] == "record.circle"
+    assert display(DictationState.IDLE, None, transcribing) == (
+        "text.bubble",
+        "Transcribing Meeting · 40%",
+    )
+    assert display(DictationState.ERROR, None, downloading)[0] == "text.bubble"
+    assert display(DictationState.RECORDING_READY, None, recording) == (
+        "waveform",
+        "Recording · Model Ready",
+    )
+    assert display(DictationState.IDLE, "Old error", None) == (
+        "exclamationmark.triangle",
+        "Old error",
+    )
+
+
+def test_audio_restart_waits_for_meetings():
+    coordinator = Mock()
+    coordinator.state = DictationState.IDLE
+    coordinator.recorder.needs_restart = True
+    restart = Mock()
+    options = dict(restart=restart, executable="/python", script="/stt-local")
+
+    app.restart_if_audio_unusable(coordinator, busy=lambda: True, **options)
+    restart.assert_not_called()
+
+    app.restart_if_audio_unusable(coordinator, busy=lambda: False, **options)
+    restart.assert_called_once()
+
+
+def make_dictation_app(tmp_path, monkeypatch, meetings=None):
     symbols = []
     monkeypatch.setattr(
         app, "make_status_icon", lambda name: symbols.append(name) or object()
@@ -123,6 +166,7 @@ def make_dictation_app(tmp_path, monkeypatch):
         ),
         monitor=Mock(),
         speech=speech,
+        meetings=meetings,
     )
     dictation._timer.stop()
     return dictation, coordinator, speech, symbols
@@ -170,3 +214,55 @@ def test_stop_speaking_is_shown_only_while_speaking(tmp_path, monkeypatch):
     speech.is_speaking = False
     dictation._tick(None)
     assert not shown()
+
+
+def fake_meetings():
+    meetings = Mock()
+    meetings.is_recording = False
+    meetings.unfinished_count = 0
+    meetings.busy = False
+    meetings.status.return_value = None
+    return meetings
+
+
+def test_meeting_menu_toggles_start_stop_and_shows_unfinished_count(tmp_path, monkeypatch):
+    meetings = fake_meetings()
+    dictation, _, _, symbols = make_dictation_app(tmp_path, monkeypatch, meetings)
+    toggle, unfinished = dictation._meeting_item, dictation._unfinished_item
+
+    assert toggle.title == "Start Meeting Recording"
+    assert unfinished._menuitem.isHidden()
+    toggle.callback(toggle)
+    meetings.start_recording.assert_called_once()
+
+    meetings.is_recording = True
+    meetings.status.return_value = MeetingStatus("recording", "Recording Meeting · 00:01")
+    dictation._tick(None)
+    assert toggle.title == "Stop Meeting Recording"
+    assert symbols[-1] == "record.circle"
+    assert dictation.status_item.title == "Recording Meeting · 00:01"
+    toggle.callback(toggle)
+    meetings.stop_recording.assert_called_once()
+
+    meetings.unfinished_count = 2
+    dictation._tick(None)
+    assert not unfinished._menuitem.isHidden()
+    assert unfinished.title == "Transcribe Unfinished Recordings (2)"
+    unfinished.callback(unfinished)
+    meetings.transcribe_unfinished.assert_called_once()
+    assert meetings.refresh.called
+
+    # A rebuilt menu keeps the meeting state.
+    dictation._reload_processors(None)
+    assert dictation._meeting_item.title == "Stop Meeting Recording"
+    assert not dictation._unfinished_item._menuitem.isHidden()
+
+
+def test_quit_shuts_down_meetings(tmp_path, monkeypatch):
+    meetings = fake_meetings()
+    dictation, _, _, _ = make_dictation_app(tmp_path, monkeypatch, meetings)
+    monkeypatch.setattr(app.rumps, "quit_application", Mock())
+
+    dictation._quit(None)
+
+    meetings.shutdown.assert_called_once()

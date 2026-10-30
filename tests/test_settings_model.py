@@ -192,3 +192,11 @@ def test_milliseconds_options_label_presets_and_keep_custom_value():
     custom = milliseconds_options(LONG_PRESS_CHOICES, 0.45)
     assert (0.45, "450 ms") in custom
     assert len(custom) == len(LONG_PRESS_CHOICES) + 1
+
+
+def test_abbreviate_home_shortens_paths_under_home():
+    from stt_local.settings import abbreviate_home
+
+    assert abbreviate_home(Path.home() / "Documents" / "Meetings") == "~/Documents/Meetings"
+    assert abbreviate_home(Path("/tmp/x")) == "/tmp/x"
+    assert abbreviate_home(Path(str(Path.home()) + "x/y")) == str(Path.home()) + "x/y"
