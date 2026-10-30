@@ -1,6 +1,6 @@
 # STT Local
 
-A deliberately small, fully local macOS menu-bar dictation app. A built-in Right Command listener controls recording; STT Local records the current default microphone, transcribes the complete recording with MLX Whisper large-v3-turbo, optionally runs a trusted Python processor, and pastes the result once.
+A deliberately small, fully local macOS menu-bar dictation app, which can also transcribe meetings. A built-in Right Command listener controls recording; STT Local records the current default microphone, transcribes the complete recording with MLX Whisper large-v3-turbo, optionally runs a trusted Python processor, and pastes the result once.
 
 Accuracy is the priority. Recordings are not split or stitched, audio is never sent to a server, and partial text is never typed while you speak.
 
@@ -8,10 +8,10 @@ Accuracy is the priority. Recordings are not split or stitched, audio is never s
 
 ### 1. Check requirements
 
-- Apple-silicon Mac running macOS 14 or newer
+- Apple-silicon Mac running macOS 14 or newer (14.2 or newer to record meetings)
 - Python 3.11 or newer
 - [`uv`](https://docs.astral.sh/uv/) installed and available in your terminal
-- Git (if macOS prompts you to install Command Line Tools when running `git`, complete that first)
+- Git (if macOS prompts you to install Command Line Tools when running `git`, complete that first). The Command Line Tools also provide the Swift compiler that builds the meeting recorder.
 - An internet connection to download dependencies and the model on first use; transcription runs locally
 
 ### 2. Clone and install
@@ -69,7 +69,7 @@ While dictation is active, a small floating pill appears at the bottom centre of
 
 ## Bias prompt
 
-**Settings…** also has a **Bias prompt** field for names, jargon and spellings Whisper should expect, such as `Komodo, Hermes, Claub`. It is passed to Whisper as `initial_prompt`, which nudges recognition toward those words without adding them to the transcript. It is saved when you press Return, leave the field or close the window, and applies from the next recording on; leave it empty to disable biasing. Keep it short and natural: Whisper only conditions the first 30 seconds of a recording on it, and an overlong or sentence-like prompt can occasionally leak its style into the output.
+**Settings…** also has a **Bias prompt** field for names, jargon and spellings Whisper should expect, such as `Komodo, Hermes, Claub`. It is passed to Whisper as `initial_prompt`, which nudges recognition toward those words without adding them to the transcript. It is saved when you press Return, leave the field or close the window, and applies from the next recording on; leave it empty to disable biasing. Meeting transcripts use the same list to correct the spelling of those names (see [Recording meetings](#recording-meetings)), so a comma-separated list of names suits both. Keep it short and natural: Whisper only conditions the first 30 seconds of a recording on it, and an overlong or sentence-like prompt can occasionally leak its style into the output.
 
 ## Reading Claude Code replies aloud
 
@@ -103,6 +103,40 @@ To set it up by hand instead, copy the `integrations/claude-code/voice-mode` dir
 In a voice session, the prompt hook asks Claude to begin its final reply with a short `<spoken>…</spoken>` block written for listening. The display hook (Claude Code 2.1.152 or later) speaks that block as soon as it has streamed, so you hear it while the rest of the reply is still being written; only the block is read. The stop hook speaks a block the display hook missed, such as one at the end of a reply, and a reply without one has its first prose paragraph read instead. Voice sessions are remembered as files named after the session ID in `~/Library/Application Support/STT Local/voice-sessions/`, so a resumed session keeps its setting; files untouched for 30 days are cleaned up. The hooks never block Claude Code, and do nothing when STT Local is not running. To show voice mode in a custom Claude Code status line, check whether the file named by the status line input's `session_id` exists in that directory.
 
 `stt-local-speech` also works on its own: `say "text"` (or text on standard input) and `stop`. It talks to the app over a private Unix socket at `~/Library/Application Support/STT Local/control.sock`. Set a different Kokoro voice, such as `am_michael` or `bf_emma`, with `speech_voice` in `config.json`.
+
+## Recording meetings
+
+STT Local can also record a meeting in any app, such as Zoom, Teams or a browser call, and write a Markdown transcript when it ends, with each line labelled **Me** or **Others** in the order it was spoken.
+
+Choose **Start Meeting Recording** from the menu bar. The icon turns into a record symbol and the status line shows the elapsed time. Choose **Stop Meeting Recording** when the meeting ends. There are no sounds and no on-screen pill, so nothing plays into the call. STT Local then transcribes the recording in a separate process; the status line shows its progress, and a notification names the transcript when it is ready. Dictation keeps working throughout, though it may be slower while a meeting is being transcribed.
+
+Transcripts are saved to `~/Documents/Meetings` by default, as files named like `2026-10-13 14.05 Meeting.md`. Change the folder with **Meeting transcripts** in **Settings…**, and open it with **Open Meetings Folder**. A transcript looks like this:
+
+```markdown
+# Meeting · Tue 13 Oct 2026, 14:05
+
+47 min · Microphone: Wireless microphone · Granite Speech 4.1 2B
+
+**[00:03] Me:** Hi, can you hear me?
+
+**[00:05] Others:** Yes, loud and clear. Shall we start?
+```
+
+How it works:
+
+- A small Swift helper, `build/stt-local-meeting-recorder`, records two tracks: everything the Mac plays, through a Core Audio process tap (minus STT Local's own sounds), and the current default microphone. It never opens or reconfigures the output device, so Bluetooth headsets keep their connection as it is. The installer builds it; if the build fails, dictation still installs and **Start Meeting Recording** says the recorder is missing.
+- Who spoke when comes from the two separate tracks. Before transcribing, STT Local removes the other side's voice that open earbuds or speakers leak into the microphone, so it doesn't appear as yours.
+- Each stretch of speech is transcribed with [IBM Granite Speech 4.1 2B](https://huggingface.co/ibm-granite/granite-speech-4.1-2b), which was much more accurate on meeting speech than Whisper in testing. The first recording downloads the model, about 4.6 GB, while you record. Transcription takes roughly 5–8 minutes per hour of meeting on an M3 Pro and up to about 8 GB of memory, which is returned when it finishes.
+
+Recording needs macOS's **System Audio Recording** permission, under **System Settings → Privacy & Security → Screen & System Audio Recording**. macOS may ask for it the first time, possibly naming the Python interpreter. Without it the system track records silence rather than failing, so STT Local warns when other apps are playing sound but the recording hears none, and the transcript notes it.
+
+Audio is kept in `~/Library/Application Support/STT Local/meetings/` only until its transcript is written, then deleted. A recording stops by itself after 4 hours and needs 2 GB of free disk space to start. If STT Local quits or crashes during a recording or its transcription, or a transcription fails, the recording is kept: one notification says so at the next launch, and **Transcribe Unfinished Recordings** transcribes it when you choose. Nothing is transcribed without that click.
+
+Other participants get no indication that you're recording; telling them is up to you, and some places require their consent. Limitations:
+
+- Everything else playing during the meeting is recorded too, such as a video or notification sounds, and anything spoken lands under Others. So do replies read aloud in voice mode, which play from a separate process.
+- The default microphone is recorded, which may not be the one the meeting app uses.
+- Remote speakers are not told apart.
 
 ## Python processors
 
@@ -195,6 +229,8 @@ The persisted configuration is `~/Library/Application Support/STT Local/config.j
 - **Model download fails on a work network:** The model is downloaded over HTTPS, which STT Local verifies against the macOS keychain. Behind a TLS-inspecting proxy such as Zscaler, its root certificate must be trusted there. This is usually already done on managed Macs; otherwise run `security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db /path/to/root-certificate.crt`, then dictate again.
 - **First transcription is slow:** The model may still be downloading or warming. Later recordings reuse the resident worker.
 - **Processor is not listed:** Use Reload and confirm the file ends in `.py` and does not begin with `_`.
+- **Meeting transcript has no Others lines, or says system audio was silent:** Grant **System Audio Recording** permission (see [Recording meetings](#recording-meetings)) to the Python interpreter or to the terminal running STT Local, then record again.
+- **Start Meeting Recording says the recorder is missing:** Install the Command Line Tools with `xcode-select --install`, then rerun `./scripts/install-launch-agent.sh`.
 - **Model RAM remains allocated:** Wait for the unload delay set in Settings (10 minutes by default) or quit STT Local; the dedicated Whisper and voice processes then exit.
 
 ## License
