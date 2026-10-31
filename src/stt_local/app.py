@@ -88,7 +88,9 @@ def status_display(
     return status_symbol_name(state, model_loaded=model_loaded), text
 
 
-PROGRESS_ICON_POINTS = 18.0
+# Every icon's height. On a 1x screen the menu bar centers an odd-height
+# icon half a pixel low.
+STATUS_ICON_POINTS = 18.0
 # Larger than the menu bar's own symbols, which look small beside its other
 # icons.
 STATUS_SYMBOL_POINTS = 16.0
@@ -98,7 +100,7 @@ def make_progress_icon(fraction: float) -> Any:
     import AppKit
     import Foundation
 
-    size = PROGRESS_ICON_POINTS
+    size = STATUS_ICON_POINTS
     fraction = min(1.0, max(0.0, fraction))
 
     def draw(_rect: Any) -> bool:
@@ -144,16 +146,19 @@ def make_status_icon(symbol_name: str | ProgressIcon) -> Any:
         STATUS_SYMBOL_POINTS, AppKit.NSFontWeightRegular
     )
     symbol = symbol.imageWithSymbolConfiguration_(configuration)
+    width, height = symbol.size().width, symbol.size().height
 
-    def draw(rect: Any) -> bool:
-        symbol.drawInRect_(rect)
+    def draw(_rect: Any) -> bool:
+        symbol.drawInRect_(
+            Foundation.NSMakeRect(0, (STATUS_ICON_POINTS - height) / 2, width, height)
+        )
         return True
 
     # The macOS 26 menu bar crops the top and bottom of a symbol image larger
     # than its own symbols, but draws a plain image whole. Drawn at display
     # time, so it stays sharp on Retina screens.
     image = AppKit.NSImage.imageWithSize_flipped_drawingHandler_(
-        symbol.size(), False, draw
+        Foundation.NSMakeSize(width, STATUS_ICON_POINTS), False, draw
     )
     image.setTemplate_(True)
     image.setAccessibilityDescription_("STT Local")

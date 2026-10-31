@@ -50,6 +50,20 @@ def test_status_symbols_are_enlarged_plain_images():
         ]
 
 
+def test_status_icons_share_an_even_height():
+    # On a 1x screen the menu bar centers an odd-height icon half a pixel low.
+    for name in (
+        "mic",
+        "mic.fill",
+        "waveform",
+        "ellipsis.circle",
+        "exclamationmark.triangle",
+        "record.circle",
+        app.ProgressIcon(0.4),
+    ):
+        assert app.make_status_icon(name).size().height == 18
+
+
 def test_status_symbol_changes_with_workflow_state():
     for loaded in (False, True):
         symbol = lambda state: app.status_symbol_name(state, model_loaded=loaded)
