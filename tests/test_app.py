@@ -27,6 +27,24 @@ def test_status_icon_is_native_template_microphone():
     assert image.accessibilityDescription() == "STT Local"
 
 
+def test_status_symbols_keep_the_menu_bar_default_size():
+    import AppKit
+
+    # The macOS 26 menu bar clips symbols configured larger than its own size.
+    for name in (
+        "mic",
+        "mic.fill",
+        "waveform",
+        "ellipsis.circle",
+        "exclamationmark.triangle",
+        "record.circle",
+    ):
+        default = AppKit.NSImage.imageWithSystemSymbolName_accessibilityDescription_(
+            name, None
+        )
+        assert app.make_status_icon(name).size() == default.size()
+
+
 def test_status_symbol_changes_with_workflow_state():
     for loaded in (False, True):
         symbol = lambda state: app.status_symbol_name(state, model_loaded=loaded)
@@ -41,7 +59,8 @@ def test_progress_icon_is_a_template_image_for_any_fraction():
     for fraction in (0.0, 0.4, 1.0):
         image = app.make_status_icon(app.ProgressIcon(fraction))
         assert image.isTemplate()
-        assert image.size().width == image.size().height == 18
+        # It replaces the record symbol when a recording ends.
+        assert image.size() == app.make_status_icon("record.circle").size()
         assert image.accessibilityDescription() == "STT Local"
 
 

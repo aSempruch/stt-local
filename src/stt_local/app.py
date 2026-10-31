@@ -88,7 +88,8 @@ def status_display(
     return status_symbol_name(state, model_loaded=model_loaded), text
 
 
-PROGRESS_ICON_POINTS = 18.0
+# The size of the record.circle symbol it replaces, so the icon keeps its size.
+PROGRESS_ICON_POINTS = 15.0
 
 
 def make_progress_icon(fraction: float) -> Any:
@@ -101,19 +102,19 @@ def make_progress_icon(fraction: float) -> Any:
     def draw(_rect: Any) -> bool:
         AppKit.NSColor.blackColor().set()
         center = Foundation.NSMakePoint(size / 2, size / 2)
-        radius = 7.25
+        radius = 5.875
         ring = AppKit.NSBezierPath.bezierPathWithOvalInRect_(
             Foundation.NSMakeRect(
                 center.x - radius, center.y - radius, 2 * radius, 2 * radius
             )
         )
-        ring.setLineWidth_(1.5)
+        ring.setLineWidth_(1.25)
         ring.stroke()
         if fraction > 0:
             wedge = AppKit.NSBezierPath.bezierPath()
             wedge.moveToPoint_(center)
             wedge.appendBezierPathWithArcWithCenter_radius_startAngle_endAngle_clockwise_(
-                center, radius - 2.25, 90.0, 90.0 - 360.0 * fraction, True
+                center, radius - 1.875, 90.0, 90.0 - 360.0 * fraction, True
             )
             wedge.closePath()
             wedge.fill()
@@ -133,13 +134,11 @@ def make_status_icon(symbol_name: str | ProgressIcon) -> Any:
         return make_progress_icon(symbol_name.fraction)
     import AppKit
 
+    # Left at the menu bar's own size: the macOS 26 menu bar clips a symbol
+    # configured any larger at its top and bottom.
     image = AppKit.NSImage.imageWithSystemSymbolName_accessibilityDescription_(
         symbol_name, "STT Local"
     )
-    configuration = AppKit.NSImageSymbolConfiguration.configurationWithPointSize_weight_(
-        16, AppKit.NSFontWeightRegular
-    )
-    image = image.imageWithSymbolConfiguration_(configuration)
     image.setTemplate_(True)
     return image
 
