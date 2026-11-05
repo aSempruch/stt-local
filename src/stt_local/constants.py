@@ -2,6 +2,9 @@ import os
 from pathlib import Path
 
 APP_NAME = "STT Local"
+# Written by scripts/install-launch-agent.sh; launchd puts it in the app's
+# XPC_SERVICE_NAME.
+LAUNCH_AGENT_LABEL = "com.asempruch.stt-local"
 APPLICATION_SUPPORT_DIR = Path.home() / "Library" / "Application Support" / APP_NAME
 CONFIG_PATH = APPLICATION_SUPPORT_DIR / "config.json"
 PROCESSORS_DIR = APPLICATION_SUPPORT_DIR / "processors"

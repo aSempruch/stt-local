@@ -3,7 +3,8 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from collections.abc import Callable
+import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -11,7 +12,12 @@ from .alerts import menu_error_title, post_notification, report_error
 from .audio import AudioRecorder
 from .config import ConfigStore
 from .control import CommandHandler, ControlServer, ControlSocketInUse
-from .constants import MEETING_RECORDER, POLL_INTERVAL_SECONDS, PROCESSORS_DIR
+from .constants import (
+    LAUNCH_AGENT_LABEL,
+    MEETING_RECORDER,
+    POLL_INTERVAL_SECONDS,
+    PROCESSORS_DIR,
+)
 from .coordinator import DictationCoordinator, DictationState
 from .hotkey import RightCommandGestures, RightCommandMonitor
 from .meeting_recorder import MeetingController, MeetingStatus
@@ -165,11 +171,38 @@ def make_status_icon(symbol_name: str | ProgressIcon) -> Any:
     return image
 
 
+# EX_TEMPFAIL. Any unsuccessful exit makes the LaunchAgent's KeepAlive
+# start the app again.
+RELAUNCH_EXIT_STATUS = 75
+
+
+def relaunch(
+    executable: str,
+    script: str,
+    *,
+    environ: Mapping[str, str] = os.environ,
+    spawn: Callable[..., Any] = subprocess.Popen,
+    exit_process: Callable[[int], Any] = os._exit,
+) -> None:
+    """Replace the app with a fresh process that has a new PID.
+
+    Not os.execv: it keeps the PID, and macOS 26's ControlCenter, which hosts
+    menu-bar items, then treats the new image as the old process still
+    exiting. It refuses its connections and the icon stays blank until the
+    app is restarted. os._exit skips atexit, where PortAudio's Pa_Terminate
+    can hang on the stuck CoreAudio call that caused the restart."""
+    if environ.get("XPC_SERVICE_NAME") == LAUNCH_AGENT_LABEL:
+        exit_process(RELAUNCH_EXIT_STATUS)
+        return
+    spawn([executable, script], start_new_session=True)
+    exit_process(0)
+
+
 def restart_if_audio_unusable(
     coordinator: DictationCoordinator,
     *,
     busy: Callable[[], bool] = lambda: False,
-    restart: Any = os.execv,
+    restart: Callable[[str, str], None] = relaunch,
     executable: str | None = None,
     script: str | None = None,
 ) -> None:
@@ -182,7 +215,20 @@ def restart_if_audio_unusable(
     ):
         executable = executable or sys.executable
         script = script or sys.argv[0]
-        restart(executable, [executable, script])
+        report_restart()
+        restart(executable, script)
+
+
+def report_restart() -> None:
+    try:
+        print(
+            f"STT Local: {time.strftime('%Y-%m-%d %H:%M:%S')} restarting "
+            f"(pid {os.getpid()}) because a microphone call stopped responding",
+            file=sys.stderr,
+            flush=True,
+        )
+    except Exception:
+        pass
 
 
 class ProcessorMenu:

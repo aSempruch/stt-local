@@ -247,10 +247,12 @@ def test_stop_recovers_when_stream_stop_hangs():
         streams.append(stream)
         return stream
 
+    log = Mock()
     recorder = AudioRecorder(
         stream_factory=stream_factory,
         refresh_devices=Mock(),
         stop_timeout=0.05,
+        log=log,
     )
     recorder.start()
     streams[0].emit([0.1, 0.2])
@@ -264,6 +266,8 @@ def test_stop_recovers_when_stream_stop_hangs():
     assert not recorder.is_recording
     assert not streams[0].stopped  # the hung native call never completed
     assert recorder.needs_restart
+    # The restart that follows is otherwise unexplained in the log.
+    assert "timed out" in log.call_args.args[0]
 
     unblock.set()  # release the abandoned background thread
 

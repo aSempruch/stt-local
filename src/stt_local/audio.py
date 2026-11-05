@@ -244,6 +244,9 @@ class AudioRecorder:
         thread.start()
         thread.join(self._stop_timeout)
         if thread.is_alive():
+            self._log(
+                "stopping the microphone timed out; restarting once dictation is idle"
+            )
             self._mark_needs_restart()
 
     def _mark_needs_restart(self) -> None:

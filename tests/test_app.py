@@ -105,7 +105,50 @@ def test_audio_timeout_restarts_only_after_workflow_returns_to_idle():
     app.restart_if_audio_unusable(
         coordinator, restart=restart, executable="/python", script="/stt-local"
     )
-    restart.assert_called_once_with("/python", ["/python", "/stt-local"])
+    restart.assert_called_once_with("/python", "/stt-local")
+
+
+def test_audio_restart_defaults_to_a_new_process_not_exec():
+    import inspect
+
+    default = inspect.signature(app.restart_if_audio_unusable).parameters["restart"]
+    assert default.default is app.relaunch
+
+
+def test_relaunch_under_the_launch_agent_exits_for_launchd_to_restart():
+    # os.execv keeps the PID, and macOS 26's ControlCenter then treats the
+    # new image as the exiting old one and never shows its menu-bar icon.
+    # launchd's KeepAlive starts a new process after an unsuccessful exit.
+    spawn, exit_process = Mock(), Mock()
+
+    app.relaunch(
+        "/python",
+        "/stt-local",
+        environ={"XPC_SERVICE_NAME": "com.asempruch.stt-local"},
+        spawn=spawn,
+        exit_process=exit_process,
+    )
+
+    spawn.assert_not_called()
+    exit_process.assert_called_once()
+    assert exit_process.call_args.args[0] != 0
+
+
+def test_relaunch_outside_launchd_starts_a_new_process_then_exits():
+    calls = []
+    spawn = Mock(side_effect=lambda *a, **k: calls.append("spawn"))
+    exit_process = Mock(side_effect=lambda code: calls.append(("exit", code)))
+
+    app.relaunch(
+        "/python",
+        "/stt-local",
+        environ={"XPC_SERVICE_NAME": "application.com.googlecode.iterm2"},
+        spawn=spawn,
+        exit_process=exit_process,
+    )
+
+    spawn.assert_called_once_with(["/python", "/stt-local"], start_new_session=True)
+    assert calls == ["spawn", ("exit", 0)]
 
 
 def test_processor_menu_lists_choices_and_persists_selection(tmp_path):
