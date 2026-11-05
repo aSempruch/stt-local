@@ -130,7 +130,7 @@ How it works:
 
 Recording needs macOS's **System Audio Recording** permission, under **System Settings → Privacy & Security → Screen & System Audio Recording**. macOS may ask for it the first time, possibly naming the Python interpreter. Without it the system track records silence rather than failing, so STT Local warns when other apps are playing sound but the recording hears none, and the transcript notes it.
 
-Audio is kept in `~/Library/Application Support/STT Local/meetings/` only until its transcript is written, then deleted. A recording stops by itself after 4 hours and needs 2 GB of free disk space to start. If STT Local quits or crashes during a recording or its transcription, or a transcription fails, the recording is kept: one notification says so at the next launch, and **Transcribe Unfinished Recordings** transcribes it when you choose. Nothing is transcribed without that click.
+Audio is kept in `~/Library/Application Support/STT Local/meetings/` only until its transcript is written, then deleted. A recording stops by itself after 4 hours and needs 2 GB of free disk space to start. If STT Local quits or crashes during a recording or its transcription, or a transcription fails, the recording is kept: one notification says so at the next launch, and **Transcribe Unfinished Recordings** transcribes it when you choose. Nothing is transcribed without that click. **Discard Unfinished Recordings** moves them to the Trash instead, so a recording discarded by mistake can be put back and is offered again at the next launch.
 
 Other participants get no indication that you're recording; telling them is up to you, and some places require their consent. Limitations:
 

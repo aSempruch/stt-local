@@ -322,9 +322,11 @@ def test_meeting_menu_toggles_start_stop_and_shows_unfinished_count(tmp_path, mo
     meetings = fake_meetings()
     dictation, _, _, symbols = make_dictation_app(tmp_path, monkeypatch, meetings)
     toggle, unfinished = dictation._meeting_item, dictation._unfinished_item
+    discard = dictation._discard_item
 
     assert toggle.title == "Start Meeting Recording"
     assert unfinished._menuitem.isHidden()
+    assert discard._menuitem.isHidden()
     toggle.callback(toggle)
     meetings.start_recording.assert_called_once()
 
@@ -344,11 +346,16 @@ def test_meeting_menu_toggles_start_stop_and_shows_unfinished_count(tmp_path, mo
     unfinished.callback(unfinished)
     meetings.transcribe_unfinished.assert_called_once()
     assert meetings.refresh.called
+    assert not discard._menuitem.isHidden()
+    assert discard.title == "Discard Unfinished Recordings (2)"
+    discard.callback(discard)
+    meetings.discard_unfinished.assert_called_once()
 
     # A rebuilt menu keeps the meeting state.
     dictation._reload_processors(None)
     assert dictation._meeting_item.title == "Stop Meeting Recording"
     assert not dictation._unfinished_item._menuitem.isHidden()
+    assert not dictation._discard_item._menuitem.isHidden()
 
 
 def test_quit_shuts_down_meetings(tmp_path, monkeypatch):

@@ -316,12 +316,17 @@ if rumps is not None:
                     "Transcribe Unfinished Recordings",
                     callback=self._transcribe_unfinished,
                 )
+                self._discard_item = rumps.MenuItem(
+                    "Discard Unfinished Recordings",
+                    callback=self._discard_unfinished,
+                )
                 meeting_items = [
                     self._meeting_item,
                     rumps.MenuItem(
                         "Open Meetings Folder", callback=self._open_meetings_folder
                     ),
                     self._unfinished_item,
+                    self._discard_item,
                     None,
                 ]
             self._menu.clear()
@@ -383,6 +388,8 @@ if rumps is not None:
             )
             self._unfinished_item.title = f"Transcribe Unfinished Recordings ({unfinished})"
             self._unfinished_item.hidden = unfinished == 0
+            self._discard_item.title = f"Discard Unfinished Recordings ({unfinished})"
+            self._discard_item.hidden = unfinished == 0
 
         def _refresh_meetings(self) -> None:
             if self.meetings is None:
@@ -439,6 +446,10 @@ if rumps is not None:
 
         def _transcribe_unfinished(self, _sender: Any) -> None:
             self.meetings.transcribe_unfinished()
+            self._refresh_meetings()
+
+        def _discard_unfinished(self, _sender: Any) -> None:
+            self.meetings.discard_unfinished()
             self._refresh_meetings()
 
         def _open_meetings_folder(self, _sender: Any) -> None:

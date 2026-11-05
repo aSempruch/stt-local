@@ -93,3 +93,13 @@ def test_delete_removes_folder(tmp_path):
 
     assert not meeting.path.exists()
     assert store.free_bytes() > 0
+
+
+def test_trash_hands_the_folder_to_the_trash(tmp_path):
+    trashed = []
+    store = MeetingStore(tmp_path, trash=trashed.append)
+    meeting = store.create(STARTED)
+
+    store.trash(meeting)
+
+    assert trashed == [meeting.path]

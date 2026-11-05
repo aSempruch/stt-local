@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import Enum
@@ -33,9 +34,27 @@ class Meeting:
     notes: tuple[str, ...] = ()
 
 
+def move_to_trash(path: Path) -> None:
+    from Foundation import NSURL, NSFileManager
+
+    moved, _, error = NSFileManager.defaultManager().trashItemAtURL_resultingItemURL_error_(
+        NSURL.fileURLWithPath_(str(path)), None, None
+    )
+    if not moved:
+        raise OSError(
+            str(error.localizedDescription()) if error else f"Couldn't move {path} to the Trash."
+        )
+
+
 class MeetingStore:
-    def __init__(self, directory: Path = MEETINGS_DIR) -> None:
+    def __init__(
+        self,
+        directory: Path = MEETINGS_DIR,
+        *,
+        trash: Callable[[Path], None] = move_to_trash,
+    ) -> None:
         self.directory = Path(directory)
+        self._trash = trash
 
     def create(self, started: datetime) -> Meeting:
         self.directory.mkdir(parents=True, exist_ok=True)
@@ -99,6 +118,11 @@ class MeetingStore:
 
     def delete(self, meeting: Meeting) -> None:
         shutil.rmtree(meeting.path, ignore_errors=True)
+
+    def trash(self, meeting: Meeting) -> None:
+        """Moves the folder to the Trash, so a discard can be undone. Raises
+        OSError when it can't."""
+        self._trash(meeting.path)
 
     def free_bytes(self) -> int:
         self.directory.mkdir(parents=True, exist_ok=True)

@@ -451,3 +451,67 @@ def test_queued_meeting_whose_folder_was_deleted_is_skipped(setup):
     assert not kept.path.exists()
     assert gone.path.name not in (tmp_path / "transcriber-calls").read_text()
     assert errors == []
+
+
+def fake_trash(tmp_path, refuse=()):
+    bin_ = tmp_path / "Trash"
+
+    def trash(path):
+        if path.name in refuse:
+            raise OSError("The volume has no Trash.")
+        bin_.mkdir(exist_ok=True)
+        path.rename(bin_ / path.name)
+
+    return trash, bin_
+
+
+def test_discard_unfinished_moves_them_to_the_trash_without_transcribing(setup):
+    make, notes, errors, clock, tmp_path = setup
+    trash, bin_ = fake_trash(tmp_path)
+    store = MeetingStore(tmp_path / "meetings", trash=trash)
+    interrupted = store.create(datetime(2026, 10, 13, 14, 5).astimezone())
+    failed = store.update(
+        store.create(datetime(2026, 10, 14, 9, 0).astimezone()),
+        state=MeetingState.FAILED,
+        error="boom",
+    )
+    controller = make(store=store)
+
+    controller.discard_unfinished()
+    for _ in range(5):
+        controller.refresh()
+        time.sleep(0.02)
+
+    assert controller.unfinished_count == 0
+    assert not controller.busy
+    assert folders(tmp_path) == []
+    assert sorted(path.name for path in bin_.iterdir()) == [
+        interrupted.path.name,
+        failed.path.name,
+    ]
+    assert json_lines(tmp_path / "transcriber-calls") == []
+    assert notes[-1] == (
+        "Meeting recordings discarded",
+        "2 recordings were moved to the Trash.",
+    )
+    assert errors == []
+
+
+def test_discard_keeps_a_recording_the_trash_refuses(setup):
+    make, notes, errors, clock, tmp_path = setup
+    store = MeetingStore(tmp_path / "meetings")
+    kept = store.create(datetime(2026, 10, 13, 14, 5).astimezone())
+    gone = store.create(datetime(2026, 10, 14, 9, 0).astimezone())
+    trash, bin_ = fake_trash(tmp_path, refuse={kept.path.name})
+    controller = make(store=MeetingStore(tmp_path / "meetings", trash=trash))
+
+    controller.discard_unfinished()
+
+    assert controller.unfinished_count == 1
+    assert folders(tmp_path) == [kept.path]
+    assert [path.name for path in bin_.iterdir()] == [gone.path.name]
+    assert errors == [("Couldn't discard a meeting recording", "The volume has no Trash.")]
+    assert notes[-1] == (
+        "Meeting recording discarded",
+        "1 recording was moved to the Trash.",
+    )

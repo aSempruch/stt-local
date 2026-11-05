@@ -270,6 +270,29 @@ class MeetingController:
         self._queue.extend(m for m in self._unfinished if m.path not in queued)
         self._unfinished = []
 
+    def discard_unfinished(self) -> None:
+        kept: list[Meeting] = []
+        failures: list[str] = []
+        for meeting in self._unfinished:
+            try:
+                self.store.trash(meeting)
+            except OSError as exc:
+                kept.append(meeting)
+                failures.append(str(exc))
+        discarded = len(self._unfinished) - len(kept)
+        self._unfinished = kept
+        if failures:
+            self.report_error("Couldn't discard a meeting recording", failures[0])
+        if discarded == 1:
+            self.notify(
+                "Meeting recording discarded", "1 recording was moved to the Trash."
+            )
+        elif discarded:
+            self.notify(
+                "Meeting recordings discarded",
+                f"{discarded} recordings were moved to the Trash.",
+            )
+
     def refresh(self) -> None:
         self._refresh_recording()
         self._refresh_prefetch()
