@@ -38,7 +38,7 @@ macOS should request Microphone permission on first capture. Monitoring Right Co
 2. Add or enable `~/repos/stt-local/.venv/bin/python`. In the file picker, press **Command-Shift-G** to enter the path. When running from Terminal during development, enable Terminal as well.
 3. Open **Privacy & Security → Microphone** and enable the Python process when prompted.
 
-If Right Command does nothing or Command-V is not synthesized, Accessibility permission is the likely cause. macOS may also list the interpreter under **Privacy & Security → Input Monitoring**. The completed transcript is still copied with `pbcopy` before the paste attempt.
+If Right Command does nothing or Command-V is not synthesized, Accessibility permission is the likely cause. macOS may also list the interpreter under **Privacy & Security → Input Monitoring**. If the paste fails, choose **Paste Last Transcript** from the menu once permission is granted.
 
 ### 4. Try your first dictation
 
@@ -64,6 +64,10 @@ Change both timings in **Settings…**: **Long press to cancel** sets the hold, 
 Starting uses a compact double chirp. Submit uses its own low confirmation cue before transcription, pasting without Return uses the Ping cue, and cancel uses Pop. Cancelled recordings are discarded. Cancelling active transcription terminates the model worker, so the next recording reloads the model.
 
 The transcript is pasted into whichever application has focus when transcription finishes, so changing applications while speaking is safe.
+
+Pasting goes through the clipboard, because Command-V is the one way of inserting text that every app handles the same: instant, one undo step, and no auto-closed brackets or early Return the way typed keystrokes get. The clipboard doesn't keep it, though. The transcript is marked transient (the [nspasteboard.org](http://nspasteboard.org) convention), so Alfred, Maccy, Raycast and other clipboard managers leave it out of their history. Half a second after the paste, whatever you had copied before comes back, including images and files; if you copy something new in that time, it is kept instead.
+
+If a paste lands in the wrong place or nowhere (for example, with no text field focused), choose **Paste Last Transcript** from the menu-bar menu to paste the most recent transcript into the focused app again, without Return. The item appears after the first dictation, and the transcript is kept only in memory until STT Local quits.
 
 While dictation is active, a small floating pill appears at the bottom centre of the screen under the pointer, above other windows and in full-screen spaces. It shows a live microphone waveform with a red dot while recording (orange while the model is still loading) and a gentle animated wave while transcribing, then disappears. The pill never takes focus or intercepts clicks.
 
@@ -224,8 +228,8 @@ The persisted configuration is `~/Library/Application Support/STT Local/config.j
 - **No sound or recording:** Verify Microphone permission and the current macOS default input device.
 - **"Recording failed: Error starting stream … [PaErrorCode -9986]":** CoreAudio refused to start the microphone, usually while the input device was changing (a Bluetooth headset switching modes, or a meeting app taking the microphone). STT Local retries once automatically, so this notification means the retry failed too. The message ends with the underlying CoreAudio code (such as `'nope'`) and the input device name; retried failures that recovered are logged to `/tmp/stt-local.stderr.log`.
 - **Microphone opening times out:** A CoreAudio device refresh can stall after a stuck audio stream. STT Local automatically restarts once the current dictation workflow returns to idle; the next recording may need to reload the model.
-- **Text copies but does not paste:** Grant Accessibility permission to `.venv/bin/python`.
-- **Nothing is copied or pasted after transcribing:** Look for an STT Local notification or a warning triangle in the menu bar; the menu shows the last error until the next dictation. Errors are also written to `/tmp/stt-local.stderr.log`.
+- **Text does not paste:** Grant Accessibility permission to `.venv/bin/python`, then use **Paste Last Transcript**.
+- **Nothing is pasted after transcribing:** Look for an STT Local notification or a warning triangle in the menu bar; the menu shows the last error until the next dictation. Errors are also written to `/tmp/stt-local.stderr.log`.
 - **Model download fails on a work network:** The model is downloaded over HTTPS, which STT Local verifies against the macOS keychain. Behind a TLS-inspecting proxy such as Zscaler, its root certificate must be trusted there. This is usually already done on managed Macs; otherwise run `security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db /path/to/root-certificate.crt`, then dictate again.
 - **First transcription is slow:** The model may still be downloading or warming. Later recordings reuse the resident worker.
 - **Processor is not listed:** Use Reload and confirm the file ends in `.py` and does not begin with `_`.

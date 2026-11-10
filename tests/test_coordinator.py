@@ -325,3 +325,43 @@ def test_shutdown_does_not_announce_a_dictation_end():
     coordinator.shutdown()
 
     assert "dictation_end" not in events
+
+
+def test_paste_last_repastes_the_latest_transcript_without_return():
+    coordinator, _, _, _, output, *_ = make_coordinator()
+    assert coordinator.last_transcript is None
+    coordinator.paste_last()
+    output.send.assert_not_called()
+
+    coordinator.start_recording()
+    coordinator.stop_recording(submit=True)
+    assert coordinator.last_transcript == "processed transcript"
+    output.send.reset_mock()
+
+    coordinator.paste_last()
+
+    output.send.assert_called_once_with("processed transcript")
+
+
+def test_failed_paste_keeps_the_transcript_for_paste_last():
+    coordinator, _, _, _, output, _, _, notifications, _ = make_coordinator()
+    output.send.side_effect = RuntimeError("no access")
+    coordinator.start_recording()
+    coordinator.stop_recording()
+    assert coordinator.last_transcript == "processed transcript"
+
+    coordinator.paste_last()
+
+    assert notifications == [("Paste failed", "no access")] * 2
+
+
+def test_paste_last_waits_while_dictating():
+    coordinator, _, _, _, output, *_ = make_coordinator()
+    coordinator.start_recording()
+    coordinator.stop_recording()
+    coordinator.start_recording()
+    output.send.reset_mock()
+
+    coordinator.paste_last()
+
+    output.send.assert_not_called()

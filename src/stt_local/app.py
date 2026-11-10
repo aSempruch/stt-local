@@ -303,6 +303,9 @@ if rumps is not None:
 
         def _rebuild_menu(self) -> None:
             processor_heading = rumps.MenuItem("Processor")
+            self._paste_last_item = rumps.MenuItem(
+                "Paste Last Transcript", callback=self._paste_last
+            )
             self._stop_speaking_item = rumps.MenuItem(
                 "Stop Speaking", callback=self._stop_speaking
             )
@@ -332,6 +335,7 @@ if rumps is not None:
             self._menu.clear()
             self.menu = [
                 self.status_item,
+                self._paste_last_item,
                 None,
                 *meeting_items,
                 processor_heading,
@@ -346,6 +350,10 @@ if rumps is not None:
             ]
             self._render_speaking()
             self._render_meetings()
+            self._render_paste_last()
+
+        def _render_paste_last(self) -> None:
+            self._paste_last_item.hidden = self.coordinator.last_transcript is None
 
         def update_status(self, state: DictationState) -> None:
             if state not in {DictationState.IDLE, DictationState.ERROR}:
@@ -412,6 +420,10 @@ if rumps is not None:
             if model_loaded != self._model_loaded:
                 self._model_loaded = model_loaded
                 self._render_status()
+            if self._paste_last_item._menuitem.isHidden() != (
+                self.coordinator.last_transcript is None
+            ):
+                self._render_paste_last()
             speaking = self.speech.is_speaking
             if speaking != self._speaking:
                 self._speaking = speaking
@@ -459,6 +471,9 @@ if rumps is not None:
                 subprocess.Popen(["open", str(folder)])
             except OSError as exc:
                 self.show_error("Couldn't open the meetings folder", str(exc))
+
+        def _paste_last(self, _sender: Any) -> None:
+            self.coordinator.paste_last()
 
         def _stop_speaking(self, _sender: Any) -> None:
             self.speech.stop()

@@ -1,7 +1,15 @@
 from contextlib import contextmanager
 from unittest.mock import Mock
 
-from stt_local.output import MacOutput
+import pytest
+
+from stt_local.output import (
+    AUTO_GENERATED_TYPE,
+    RESTORE_DELAY_SECONDS,
+    STRING_TYPE,
+    TRANSIENT_TYPE,
+    MacOutput,
+)
 from stt_local.sounds import MacSounds
 
 
@@ -19,40 +27,175 @@ class FakeKeyboard:
         self.tapped.append(key)
 
 
-def test_output_copies_utf8_then_pastes():
-    run = Mock()
-    keyboard = FakeKeyboard()
-    sleep = Mock()
+class FakePasteboard:
+    def __init__(self, items=None):
+        self.items = items if items is not None else []
+        self.change_count = 0
+        self.writes = []
+
+    def snapshot(self):
+        return [dict(item) for item in self.items]
+
+    def write(self, items):
+        self.items = [dict(item) for item in items]
+        self.writes.append(self.items)
+        self.change_count += 1
+
+    def text(self):
+        return self.items[0][STRING_TYPE].decode() if self.items else None
+
+
+class FakeTimers:
+    def __init__(self):
+        self.pending = []
+
+    def __call__(self, delay, callback):
+        timer = Mock()
+        timer.delay = delay
+        timer.callback = callback
+        timer.cancel.side_effect = lambda: self.pending.remove(timer)
+        self.pending.append(timer)
+        return timer
+
+    def fire(self):
+        timer = self.pending.pop(0)
+        timer.callback()
+
+
+def make_output(pasteboard=None, keyboard=None, **kwargs):
+    pasteboard = pasteboard if pasteboard is not None else FakePasteboard()
+    keyboard = keyboard if keyboard is not None else FakeKeyboard()
+    timers = FakeTimers()
     output = MacOutput(
-        run=run,
+        pasteboard_factory=lambda: pasteboard,
         keyboard_factory=lambda: keyboard,
         command_key="COMMAND",
-        sleep=sleep,
+        enter_key="ENTER",
+        sleep=Mock(),
+        timer_factory=timers,
+        **kwargs,
     )
+    return output, pasteboard, keyboard, timers
+
+
+def test_output_copies_utf8_as_transient_then_pastes():
+    output, pasteboard, keyboard, _ = make_output()
 
     output.send("héllo")
 
-    run.assert_called_once_with(
-        ["pbcopy"], input="héllo".encode(), check=True
-    )
-    sleep.assert_called_once_with(0.05)
+    item = pasteboard.items[0]
+    assert item[STRING_TYPE] == "héllo".encode()
+    # Alfred and other clipboard managers skip items carrying these markers.
+    assert TRANSIENT_TYPE in item and AUTO_GENERATED_TYPE in item
     assert keyboard.pressed_key == "COMMAND"
     assert keyboard.tapped == ["v"]
 
 
 def test_submit_output_pastes_then_presses_enter():
-    keyboard = FakeKeyboard()
-    output = MacOutput(
-        run=Mock(),
-        keyboard_factory=lambda: keyboard,
-        command_key="COMMAND",
-        enter_key="ENTER",
-        sleep=Mock(),
-    )
+    output, _, keyboard, _ = make_output()
 
     output.send("send it", press_enter=True)
 
     assert keyboard.tapped == ["v", "ENTER"]
+
+
+def test_previous_clipboard_comes_back_after_the_paste():
+    previous = [{"public.png": b"PNG"}, {STRING_TYPE: b"copied"}]
+    output, pasteboard, _, timers = make_output(FakePasteboard(previous))
+
+    output.send("dictated")
+    assert pasteboard.text() == "dictated"
+    assert timers.pending[0].delay == RESTORE_DELAY_SECONDS
+
+    timers.fire()
+
+    assert pasteboard.items[0]["public.png"] == b"PNG"
+    assert TRANSIENT_TYPE in pasteboard.items[0]
+    assert pasteboard.items[1] == {STRING_TYPE: b"copied"}
+
+
+def test_empty_clipboard_is_restored_empty():
+    output, pasteboard, _, timers = make_output()
+
+    output.send("dictated")
+    timers.fire()
+
+    assert pasteboard.items == []
+
+
+def test_a_copy_after_the_paste_is_not_overwritten():
+    output, pasteboard, _, timers = make_output(
+        FakePasteboard([{STRING_TYPE: b"old"}])
+    )
+
+    output.send("dictated")
+    pasteboard.write([{STRING_TYPE: b"new copy"}])
+    timers.fire()
+
+    assert pasteboard.text() == "new copy"
+
+
+def test_back_to_back_pastes_restore_the_original_contents():
+    output, pasteboard, _, timers = make_output(
+        FakePasteboard([{STRING_TYPE: b"original"}])
+    )
+
+    output.send("first")
+    output.send("second")
+    assert len(timers.pending) == 1
+
+    timers.fire()
+
+    assert pasteboard.text() == "original"
+
+
+def test_stale_restore_callback_does_nothing():
+    output, pasteboard, _, timers = make_output(
+        FakePasteboard([{STRING_TYPE: b"original"}])
+    )
+    output.send("first")
+    stale = timers.pending[0].callback
+    output.send("second")
+
+    stale()
+
+    assert pasteboard.text() == "second"
+
+
+def test_failed_keystroke_still_restores_the_clipboard():
+    keyboard = FakeKeyboard()
+    keyboard.tap = Mock(side_effect=RuntimeError("no access"))
+    output, pasteboard, _, timers = make_output(
+        FakePasteboard([{STRING_TYPE: b"original"}]), keyboard
+    )
+
+    with pytest.raises(RuntimeError):
+        output.send("dictated")
+    timers.fire()
+
+    assert pasteboard.text() == "original"
+
+
+def test_failed_clipboard_write_puts_the_old_contents_back():
+    pasteboard = FakePasteboard([{STRING_TYPE: b"original"}])
+    real_write = pasteboard.write
+    calls = []
+
+    def write(items):
+        calls.append(items)
+        if len(calls) == 1:
+            raise RuntimeError("busy")
+        real_write(items)
+
+    pasteboard.write = write
+    output, _, keyboard, timers = make_output(pasteboard)
+
+    with pytest.raises(RuntimeError, match="busy"):
+        output.send("dictated")
+
+    assert pasteboard.text() == "original"
+    assert keyboard.tapped == []
+    assert timers.pending == []
 
 
 def test_sounds_are_preloaded_and_played_in_process():
@@ -96,25 +239,28 @@ def test_default_cues_load_from_disk():
     assert sounds._submit_sound is not None
 
 
-def test_keystrokes_run_through_main_thread_hook_after_copy():
+def test_pasteboard_and_keystrokes_run_through_main_thread_hook():
     events = []
     keyboard = FakeKeyboard()
+    pasteboard = FakePasteboard()
+    pasteboard.write = lambda items: events.append("copy")
 
     def on_main(callback):
         events.append("main")
         callback()
 
     output = MacOutput(
-        run=lambda *_args, **_kwargs: events.append("copy"),
+        pasteboard_factory=lambda: pasteboard,
         keyboard_factory=lambda: events.append("keyboard") or keyboard,
         command_key="COMMAND",
         sleep=Mock(),
         on_main=on_main,
+        timer_factory=FakeTimers(),
     )
 
     output.send("hi")
 
-    assert events == ["copy", "main", "keyboard"]
+    assert events == ["main", "copy", "main", "keyboard", "main"]
     assert keyboard.tapped == ["v"]
 
 

@@ -249,6 +249,7 @@ def make_dictation_app(tmp_path, monkeypatch, meetings=None):
     coordinator.recorder.needs_restart = False
     coordinator.worker.is_ready = False
     coordinator.worker.download_progress = None
+    coordinator.last_transcript = None
     speech = Mock()
     speech.is_speaking = False
     dictation = app.DictationApp(
@@ -307,6 +308,23 @@ def test_stop_speaking_is_shown_only_while_speaking(tmp_path, monkeypatch):
     speech.is_speaking = False
     dictation._tick(None)
     assert not shown()
+
+
+def test_paste_last_transcript_appears_once_there_is_one(tmp_path, monkeypatch):
+    dictation, coordinator, _, _ = make_dictation_app(tmp_path, monkeypatch)
+    item = dictation.menu["Paste Last Transcript"]
+    assert item._menuitem.isHidden()
+
+    coordinator.last_transcript = "hello"
+    dictation._tick(None)
+    assert not dictation.menu["Paste Last Transcript"]._menuitem.isHidden()
+
+    dictation._reload_processors(None)
+    item = dictation.menu["Paste Last Transcript"]
+    assert not item._menuitem.isHidden()
+
+    item.callback(item)
+    coordinator.paste_last.assert_called_once_with()
 
 
 def fake_meetings():

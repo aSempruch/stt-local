@@ -46,11 +46,31 @@ class DictationCoordinator:
         self._state = DictationState.IDLE
         self._cancel_requested = threading.Event()
         self._shutdown_requested = threading.Event()
+        self._last_transcript: str | None = None
 
     @property
     def state(self) -> DictationState:
         with self._lock:
             return self._state
+
+    @property
+    def last_transcript(self) -> str | None:
+        with self._lock:
+            return self._last_transcript
+
+    def paste_last(self) -> None:
+        """Paste the most recent transcript again, for one that missed."""
+        text = self.last_transcript
+        if text is None or self.state is not DictationState.IDLE:
+            return
+
+        def paste() -> None:
+            try:
+                self.output.send(text)
+            except Exception as exc:
+                self._notify("Paste failed", str(exc))
+
+        self.thread_factory(target=paste, daemon=True).start()
 
     def toggle(self) -> None:
         state = self.state
@@ -156,6 +176,8 @@ class DictationCoordinator:
             final_text = processed.text.strip()
             if not final_text:
                 return
+            with self._lock:
+                self._last_transcript = final_text
             try:
                 self.output.send(final_text, press_enter=submit)
             except Exception as exc:
